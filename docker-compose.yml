@@ -1,0 +1,30 @@
+services:
+  spondbot:
+    build: .
+    image: spondbot:latest
+    container_name: spondbot
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/London}
+      SPOND_USERNAME: ${SPOND_USERNAME}
+      SPOND_PASSWORD: ${SPOND_PASSWORD}
+    command:
+      - --watch
+      - --event-filter
+      - "Sunday Social"
+      - --group
+      - ${SPOND_GROUP_ID}
+      - --invite-time
+      - ${SPOND_INVITE_TIME}   # local wall-clock time invites typically go out, e.g. 09:00
+      - --pre-window
+      - "30"                   # start rapid polling 30s before invite-time
+      - --idle-check
+      - "21600"                # check every 6h outside the active window
+      - --active-poll
+      - "5"                    # poll every 5s inside the active window
+      - --accept-delay
+      - "0.7"                  # wait 0.7s after invite detected before accepting
+      - --max-retries
+      - "10"
+      - --retry-delay
+      - "1.0"

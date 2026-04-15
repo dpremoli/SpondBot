@@ -1,0 +1,19 @@
+# Never bake credentials into the image
+.env
+.env.*
+!.env.example
+examples/config.py
+
+# Git / editors / caches
+.git/
+.gitignore
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+
+# Local-only stuff
+examples/exports/
+tests/
+docs/
