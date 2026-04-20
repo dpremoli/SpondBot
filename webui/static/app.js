@@ -97,34 +97,13 @@ async function loadConfig() {
   selectedSet = new Set(cfg.selected_event_ids || []);
   groupByMode = cfg.group_by || "heading";
   $("#group_by").value = groupByMode;
-}
-
-$("#group_by").addEventListener("change", async () => {
-  groupByMode = $("#group_by").value;
-  // persist via settings endpoint
   try {
-    const cur = await api("/api/settings");
-    await api("/api/settings", {
-      method: "POST",
-      body: JSON.stringify({
-        initial_delay: cur.defaults.initial_delay,
-        retry_count: cur.defaults.retry_count,
-        retry_interval: cur.defaults.retry_interval,
-        response: cur.defaults.response,
-        dry_run: cur.dry_run,
-        group_by: groupByMode,
-      }),
-    });
-  } catch (e) {
-    console.warn("group_by persist failed:", e.message);
+    showPast = localStorage.getItem("__show_past") === "true";
+  } catch {
+    showPast = false;
   }
-  renderGroups();
-});
-
-$("#show-past").addEventListener("change", () => {
-  showPast = $("#show-past").checked;
-  renderGroups();
-});
+  $("#show-past").checked = showPast;
+}
 
 async function saveCreds(ev) {
   ev.preventDefault();
@@ -451,6 +430,37 @@ function escapeHtml(s) {
 $("#creds-form").addEventListener("submit", saveCreds);
 $("#refresh").addEventListener("click", manualRefresh);
 $("#save-selection").addEventListener("click", saveSelection);
+
+$("#group_by").addEventListener("change", async () => {
+  groupByMode = $("#group_by").value;
+  try {
+    const cur = await api("/api/settings");
+    await api("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        initial_delay: cur.defaults.initial_delay,
+        retry_count: cur.defaults.retry_count,
+        retry_interval: cur.defaults.retry_interval,
+        response: cur.defaults.response,
+        dry_run: cur.dry_run,
+        group_by: groupByMode,
+      }),
+    });
+  } catch (e) {
+    console.warn("group_by persist failed:", e.message);
+  }
+  renderGroups();
+});
+
+$("#show-past").addEventListener("change", () => {
+  showPast = $("#show-past").checked;
+  try {
+    localStorage.setItem("__show_past", String(showPast));
+  } catch {
+    // localStorage might not be available
+  }
+  renderGroups();
+});
 
 loadConfig()
   .then(() => Promise.all([loadEvents(), loadStatus()]))
