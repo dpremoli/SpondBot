@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SpondBot</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<main>
+  <h1>SpondBot</h1>
+  <p class="sub">Auto-accept Spond event invites the moment they open.</p>
+
+  <section class="card">
+    <h2>Credentials</h2>
+    <form id="creds-form">
+      <label>Username (email)
+        <input type="email" id="username" required autocomplete="username" />
+      </label>
+      <label>Password
+        <input type="password" id="password" required autocomplete="current-password" />
+      </label>
+      <label>Group IDs (one per line — leave blank for all groups)
+        <textarea id="group_ids" rows="3" placeholder="C9DC791FFE63D7914D6952BE10D97B46"></textarea>
+      </label>
+      <button type="submit">Save &amp; verify</button>
+      <span id="creds-status" class="status"></span>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Events</h2>
+    <div class="toolbar">
+      <button id="refresh">Refresh now</button>
+      <button id="save-selection">Save selection</button>
+      <span id="events-status" class="status"></span>
+    </div>
+    <table id="events">
+      <thead>
+        <tr>
+          <th>Auto-accept</th>
+          <th>Event</th>
+          <th>Group</th>
+          <th>Available (invite time)</th>
+          <th>Starts</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,92 +1,79 @@
-# Spond
-![spond logo](https://github.com/Olen/Spond/blob/main/images/spond-logo.png?raw=true)
+# SpondBot
 
-Simple, unofficial library with some example scripts to access data from the [Spond](https://spond.com/) API.
+Web UI that auto-accepts [Spond](https://spond.com/) event invites the moment
+they open. Built on the unofficial [Spond Python library](https://github.com/Olen/Spond)
+(bundled in `spond/`).
 
-## Install
+## What it does
 
-`pip install spond`
+- You enter your Spond username, password, and the group IDs you care about.
+- It lists every event in those groups with the time the invite becomes
+  available (`inviteTime`).
+- Tick the events you want auto-accepted.
+- `0.3s` after each selected event opens, SpondBot fires an accept. If the
+  call fails (event not yet live, transient error, etc.) it retries up to
+  **10 more times, one every 0.3s**.
 
-## Usage
+Config is persisted to `data/config.json` so the bot survives restarts.
 
-You need a username and password from Spond
+## Run locally
 
-### Example code
-
-```
-import asyncio
-from spond import spond
-
-username = 'my@mail.invalid'
-password = 'Pa55worD'
-group_id = 'C9DC791FFE63D7914D6952BE10D97B46'  # fake 
-
-async def main():
-    s = spond.Spond(username=username, password=password)
-    group = await s.get_group(group_id)
-    print(group['name'])
-    await s.clientsession.close()
-
-asyncio.run(main())
-
+```bash
+pip install -r requirements.txt
+uvicorn webui.app:app --host 0.0.0.0 --port 8000
 ```
 
-## Key methods
+Open http://localhost:8000.
 
-### get_groups()
+## Run with Docker Compose
 
-Get details of all your group memberships and all members of those groups.
+```bash
+docker compose up -d --build
+```
 
-### get_events([group_id, subgroup_id, include_scheduled, max_end, min_end, max_start, min_start, max_events])
+The `./data` directory is bind-mounted into the container so your config
+survives rebuilds.
 
-Get details of events, limited to 100 by default.
-Optional parameters allow filtering by start and end datetimes, group and subgroup; more events to be returned; inclusion of 'scheduled' events.
+## Run on Unraid (pulling from git)
 
-### get_person()
-Get a member's details.
+The `unraid/update.sh` script clones this repo (or updates it if already
+cloned) and `docker compose up -d --build`s it. Use it once to bootstrap, and
+schedule it with the **User Scripts** plugin to keep in sync with `main`.
 
-### get_messages(max_chats=100)
-Get chats, limited to 100 by default.
-Optional parameter allows more events to be returned.
+1. Install the **User Scripts** plugin from Community Applications.
+2. Add a new script called `spondbot-update` and paste the contents of
+   [unraid/update.sh](unraid/update.sh) (or download and reference it).
+3. Edit the variables at the top if your paths differ:
+   - `REPO_DIR` — where to clone (default `/mnt/user/appdata/spondbot`)
+   - `REPO_URL` — your fork of this repo
+   - `BRANCH` — default `main`
+4. Run it once manually (`Run in background`). It will:
+   - clone the repo into `/mnt/user/appdata/spondbot`
+   - create `data/` for persistent config
+   - build and start the `spondbot` container on port `8000`
+5. Open `http://<unraid-ip>:8000` and configure credentials + group IDs.
+6. Schedule the script (e.g. daily at 04:00) so the container auto-updates
+   whenever you push to `main`.
 
-### send_message(text, user=None, group_uid=None, chat_id=None)
-Send a message with content `text`.
-Either specify an existing `chat_id`, or both `user` and `group_uid` for a new chat.
+Requirements on the Unraid host: `git` and the Docker Compose plugin (both
+shipped on modern Unraid). The container itself needs no extra setup.
 
-### get_event_attendance_xlsx()
-Get Excel attendance report for a single event, available via the web client.
+### Finding your group IDs
 
-### change_response()
-Change a member's response for an event (e.g. accept/decline)
+Log into Spond in a browser, open a group, and copy the hex ID from the URL
+(`…/group/<GROUP_ID>/…`). Paste one per line into the UI. Leave the field
+blank to query every group you belong to.
 
-### get_posts()
-Retrieve posts from group walls.
+## Layout
 
-### get_profile()
-Retrieve information connected to the user's account.
+```
+spond/      # bundled Spond API client
+webui/      # FastAPI app + static frontend
+unraid/     # Unraid update/bootstrap script
+Dockerfile
+docker-compose.yml
+```
 
-## Example scripts
+## License
 
-The following scripts are included in `examples/`.  Some of the scripts might require additional packages to be installed (csv, ical etc).
-
-Rename the file `config.py.sample` to `config.py` and add your username and password to the file before running the samples.
-
-### ical.py
-Generates an ics-file of upcoming events.
-
-### groups.py
-Generates a json-file for each group you are a member of.
-
-### attendance.py &lt;-f from_date&gt; &lt;-t to_date&gt; [-a]
-Generates a csv-file for each event between `from_date` and `to_date` with attendance status of all organizers.  The optional parameter `-a` also includes all members that has been invited.
-
-### transactions.py
-Generates a csv-file for transactions / payments appeared in [Spond Club](https://www.spond.com/spond-club-overview/) > Finance > Payments.
-
-### manual_test_functions.py
-Demonstrates most `get...()` methods.
-
-## AsyncIO
-[Asyncio](https://docs.python.org/3/library/asyncio.html) might seem intimidating in the beginning, but for basic stuff, it is quite easy to follow the examples above, and just remeber to prefix functions that use the API with `async def ...` and to `await` all API-calls and all calls to said functions.
-
-[This article](https://realpython.com/async-io-python/) will give a nice introduction to both why, when and how to use asyncio in projects.
+GPL-3.0 — inherits from the upstream Spond library.

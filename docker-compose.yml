@@ -1,0 +1,11 @@
+services:
+  spondbot:
+    build: .
+    container_name: spondbot
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      - LOG_LEVEL=INFO

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf examples images tests .github/workflows .github/dependabot.yml)",
+      "Bash(rmdir .github)"
+    ]
+  }
+}
