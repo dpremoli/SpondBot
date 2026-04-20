@@ -17,7 +17,6 @@ import aiohttp
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from spond import AuthenticationError, spond
@@ -685,22 +684,30 @@ async def api_history(limit: int = 100) -> dict[str, Any]:
     return {"entries": read_history(limit=limit)}
 
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+
+@app.get("/static/{path:path}")
+async def static_files(path: str) -> FileResponse:
+    full = STATIC_DIR / path
+    if not full.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(str(full), headers=_NO_CACHE)
 
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    return FileResponse(str(STATIC_DIR / "index.html"), headers=_NO_CACHE)
 
 
 @app.get("/settings")
 async def settings_page() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "settings.html"))
+    return FileResponse(str(STATIC_DIR / "settings.html"), headers=_NO_CACHE)
 
 
 @app.get("/logs")
 async def logs_page() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "logs.html"))
+    return FileResponse(str(STATIC_DIR / "logs.html"), headers=_NO_CACHE)
 
 
 # Silence secrets-unused warning without adding runtime cost.
