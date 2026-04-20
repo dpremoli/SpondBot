@@ -2,7 +2,16 @@ const $ = (sel) => document.querySelector(sel);
 
 async function api(path) {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    let detail;
+    try {
+      const json = await res.json();
+      detail = json.detail || res.statusText;
+    } catch {
+      detail = await res.text();
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 

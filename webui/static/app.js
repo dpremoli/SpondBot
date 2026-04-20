@@ -6,8 +6,14 @@ async function api(path, opts = {}) {
     ...opts,
   });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail || res.statusText);
+    let detail;
+    try {
+      const json = await res.json();
+      detail = json.detail || res.statusText;
+    } catch {
+      detail = await res.text();
+    }
+    throw new Error(detail);
   }
   return res.json();
 }
