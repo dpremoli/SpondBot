@@ -20,4 +20,5 @@ COPY webui ./webui
 VOLUME ["/data"]
 EXPOSE 8000
 
-CMD ["uvicorn", "webui.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "webui.app:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--no-access-log", "--log-level", "warning"]

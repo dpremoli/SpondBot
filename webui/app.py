@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import aiohttp
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,10 +32,27 @@ DATA_DIR = Path(os.environ.get("SPONDBOT_DATA", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = DATA_DIR / "config.json"
 HISTORY_PATH = DATA_DIR / "history.jsonl"
+KEY_PATH = DATA_DIR / ".key"
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-POLL_INTERVAL = 30  # seconds between event-list refreshes
+# Poll cadence (seconds). Deliberately long — the actual auto-accept runs off a
+# local timer scheduled at tick time, so we don't need to poll frequently just
+# to know when to fire. Polling is only for discovering *new* scheduled events
+# or reflecting selection changes. Env var lets you tune without rebuilding.
+POLL_INTERVAL = int(os.environ.get("SPONDBOT_POLL_INTERVAL", "900"))  # 15 min
+# Tighten (but don't eliminate) polling when there's an event arming soon.
+POLL_INTERVAL_NEAR_FIRE = int(
+    os.environ.get("SPONDBOT_POLL_INTERVAL_NEAR_FIRE", "120")
+)
+# "Soon" window — if any armed accept is within this many seconds, use the
+# tighter interval above.
+NEAR_FIRE_WINDOW = 300
+
+# Manual /api/refresh is throttled to this many seconds.
+MANUAL_REFRESH_MIN_INTERVAL = int(
+    os.environ.get("SPONDBOT_MANUAL_REFRESH_MIN", "30")
+)
 
 DEFAULT_SETTINGS = {
     "initial_delay": 0.3,
@@ -41,24 +62,81 @@ DEFAULT_SETTINGS = {
 }
 
 
+# ---------- password-at-rest encryption ----------
+
+def _load_or_create_key() -> bytes:
+    """Load or create the Fernet key used to encrypt the Spond password.
+
+    Env var `SPONDBOT_SECRET` (any string) overrides the on-disk key — useful
+    when you want the key to live somewhere other than the data volume.
+    """
+    env = os.environ.get("SPONDBOT_SECRET")
+    if env:
+        # Derive a 32-byte key from the passphrase.
+        import hashlib
+        raw = hashlib.sha256(env.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(raw)
+    if KEY_PATH.exists():
+        return KEY_PATH.read_bytes()
+    key = Fernet.generate_key()
+    KEY_PATH.write_bytes(key)
+    try:
+        os.chmod(KEY_PATH, 0o600)
+    except OSError:
+        pass
+    return key
+
+
+_fernet = Fernet(_load_or_create_key())
+
+
+def encrypt_password(plain: str) -> str:
+    if not plain:
+        return ""
+    return "enc:" + _fernet.encrypt(plain.encode("utf-8")).decode("ascii")
+
+
+def decrypt_password(stored: str) -> str:
+    if not stored:
+        return ""
+    if not stored.startswith("enc:"):
+        # legacy plaintext — migrate on next save
+        return stored
+    try:
+        return _fernet.decrypt(stored[4:].encode("ascii")).decode("utf-8")
+    except InvalidToken:
+        log.error("stored password could not be decrypted — key mismatch")
+        return ""
+
+
 # ---------- config persistence ----------
 
 def load_config() -> dict[str, Any]:
+    """Load config and return it with the password decrypted."""
     if CONFIG_PATH.exists():
         cfg = json.loads(CONFIG_PATH.read_text())
     else:
         cfg = {}
     cfg.setdefault("username", "")
-    cfg.setdefault("password", "")
+    cfg["password"] = decrypt_password(cfg.get("password", ""))
     cfg.setdefault("group_ids", [])
     cfg.setdefault("selected_event_ids", [])
     cfg.setdefault("defaults", dict(DEFAULT_SETTINGS))
-    cfg.setdefault("event_settings", {})  # event_id -> partial settings dict
+    cfg.setdefault("event_settings", {})
+    cfg.setdefault("dry_run", False)
+    cfg.setdefault("group_by", "heading")  # heading | day | week | year
     return cfg
 
 
 def save_config(cfg: dict[str, Any]) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+    """Persist config; the password is encrypted before writing."""
+    stored = dict(cfg)
+    stored["password"] = encrypt_password(cfg.get("password", ""))
+    CONFIG_PATH.write_text(json.dumps(stored, indent=2))
+    try:
+        os.chmod(CONFIG_PATH, 0o600)
+    except OSError:
+        pass
 
 
 def settings_for(cfg: dict[str, Any], event_id: str) -> dict[str, Any]:
@@ -90,13 +168,98 @@ def read_history(limit: int = 100) -> list[dict[str, Any]]:
 # ---------- scheduler state ----------
 
 class Scheduler:
-    """Polls Spond for scheduled events, schedules an auto-accept task per selected event."""
+    """Polls Spond sparingly; schedules local timer tasks to auto-respond."""
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._scheduled: dict[str, asyncio.Task] = {}
+        self._scheduled_fire_ts: dict[str, float] = {}  # event_id -> epoch fire time
         self._accepted: set[str] = set()
         self._events_cache: list[dict] = []
+        self._client: spond.Spond | None = None
+        self._client_key: tuple[str, str] | None = None
+        self._client_lock = asyncio.Lock()
+        self._last_error: str | None = None
+        self._last_tick_ts: float | None = None
+        self._last_manual_refresh_ts: float = 0.0
+        self._wake_event = asyncio.Event()
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def last_tick_ts(self) -> float | None:
+        return self._last_tick_ts
+
+    def status(self) -> dict[str, Any]:
+        cfg = load_config()
+        now = time.time()
+        pending = [
+            (eid, ts) for eid, ts in self._scheduled_fire_ts.items()
+            if eid not in self._accepted and ts >= now
+        ]
+        pending.sort(key=lambda p: p[1])
+        next_id, next_ts = (pending[0] if pending else (None, None))
+        next_heading = None
+        if next_id:
+            for e in self._events_cache:
+                if e.get("id") == next_id:
+                    next_heading = e.get("heading")
+                    break
+        return {
+            "last_tick_ts": self._last_tick_ts,
+            "last_error": self._last_error,
+            "events_cached": len(self._events_cache),
+            "scheduled_count": len(pending),
+            "next_fire_ts": next_ts,
+            "next_event_heading": next_heading,
+            "accepted_count": len(self._accepted),
+            "dry_run": bool(cfg.get("dry_run")),
+            "logged_in": self._client is not None,
+            "poll_interval": self._current_poll_interval(),
+        }
+
+    def _current_poll_interval(self) -> int:
+        """Tighter cadence if something is armed to fire within NEAR_FIRE_WINDOW."""
+        now = time.time()
+        for ts in self._scheduled_fire_ts.values():
+            if 0 < ts - now <= NEAR_FIRE_WINDOW:
+                return POLL_INTERVAL_NEAR_FIRE
+        return POLL_INTERVAL
+
+    def wake(self) -> None:
+        """Nudge the loop so it ticks on the next iteration instead of sleeping."""
+        self._wake_event.set()
+
+    async def get_client(self, username: str, password: str) -> spond.Spond:
+        """Return a Spond client, reusing the existing one across calls.
+
+        Spond rate-limits aggressively; every `Spond(...)` call does a fresh
+        login. We share one instance keyed by (username, password) so its
+        cached `token` is reused for all subsequent API calls.
+        """
+        async with self._client_lock:
+            key = (username, password)
+            if self._client is None or self._client_key != key:
+                if self._client is not None:
+                    try:
+                        await self._client.clientsession.close()
+                    except Exception:
+                        pass
+                self._client = spond.Spond(username=username, password=password)
+                self._client_key = key
+            return self._client
+
+    async def reset_client(self) -> None:
+        async with self._client_lock:
+            if self._client is not None:
+                try:
+                    await self._client.clientsession.close()
+                except Exception:
+                    pass
+            self._client = None
+            self._client_key = None
 
     async def start(self) -> None:
         if self._task is None or self._task.done():
@@ -108,6 +271,8 @@ class Scheduler:
         for t in self._scheduled.values():
             t.cancel()
         self._scheduled.clear()
+        self._scheduled_fire_ts.clear()
+        await self.reset_client()
 
     @property
     def events(self) -> list[dict]:
@@ -125,7 +290,29 @@ class Scheduler:
                 raise
             except Exception:
                 log.exception("scheduler tick failed")
-            await asyncio.sleep(POLL_INTERVAL)
+            interval = self._current_poll_interval()
+            try:
+                await asyncio.wait_for(self._wake_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+            self._wake_event.clear()
+
+    async def manual_refresh(self) -> None:
+        """Throttled manual tick — rate-limit guard against UI spam."""
+        now = time.time()
+        if now - self._last_manual_refresh_ts < MANUAL_REFRESH_MIN_INTERVAL:
+            remaining = int(
+                MANUAL_REFRESH_MIN_INTERVAL - (now - self._last_manual_refresh_ts)
+            )
+            raise HTTPException(
+                429,
+                f"Refresh throttled — try again in {remaining}s. "
+                "(Spond rate-limits aggressively; the bot polls automatically.)",
+            )
+        self._last_manual_refresh_ts = now
+        await self._tick()
+        if self._last_error:
+            raise HTTPException(502, self._last_error)
 
     async def _tick(self) -> None:
         cfg = load_config()
@@ -134,8 +321,8 @@ class Scheduler:
         group_ids = cfg.get("group_ids") or []
         selected = set(cfg.get("selected_event_ids") or [])
 
-        s = spond.Spond(username=cfg["username"], password=cfg["password"])
         try:
+            s = await self.get_client(cfg["username"], cfg["password"])
             all_events: list[dict] = []
             seen_ids: set[str] = set()
             sources = group_ids if group_ids else [None]
@@ -148,31 +335,50 @@ class Scheduler:
                     if eid and eid not in seen_ids:
                         seen_ids.add(eid)
                         all_events.append(e)
-
             self._events_cache = all_events
+            self._last_error = None
+            self._last_tick_ts = time.time()
+        except aiohttp.ContentTypeError as exc:
+            self._last_error = (
+                f"Spond returned non-JSON ({exc.status}) — likely rate-limited. "
+                "Backing off."
+            )
+            log.warning(self._last_error)
+            await self.reset_client()
+            return
+        except AuthenticationError as exc:
+            self._last_error = f"Spond auth failed: {exc}"
+            log.error(self._last_error)
+            await self.reset_client()
+            return
+        except Exception as exc:
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            log.exception("tick failure")
+            return
 
-            now = time.time()
-            for e in all_events:
-                eid = e["id"]
-                if eid not in selected or eid in self._accepted:
-                    continue
-                if eid in self._scheduled and not self._scheduled[eid].done():
-                    continue
-                per = settings_for(cfg, eid)
-                invite_ts = _available_epoch(e)
-                delay = max(0.0, invite_ts - now) + float(per["initial_delay"])
-                log.info(
-                    "scheduling auto-%s for %s in %.2fs (%s)",
-                    per["response"], eid, delay, e.get("heading"),
+        now = time.time()
+        for e in all_events:
+            eid = e["id"]
+            if eid not in selected or eid in self._accepted:
+                continue
+            if eid in self._scheduled and not self._scheduled[eid].done():
+                continue
+            per = settings_for(cfg, eid)
+            invite_ts = _available_epoch(e)
+            fire_ts = invite_ts + float(per["initial_delay"])
+            delay = max(0.0, fire_ts - now)
+            log.info(
+                "arming auto-%s for %s in %.1fs (%s)%s",
+                per["response"], eid, delay, e.get("heading"),
+                " [dry-run]" if cfg.get("dry_run") else "",
+            )
+            self._scheduled_fire_ts[eid] = fire_ts
+            self._scheduled[eid] = asyncio.create_task(
+                self._accept_later(
+                    cfg["username"], cfg["password"], eid, delay, per,
+                    e.get("heading", ""), bool(cfg.get("dry_run")),
                 )
-                self._scheduled[eid] = asyncio.create_task(
-                    self._accept_later(
-                        cfg["username"], cfg["password"], eid, delay, per,
-                        e.get("heading", ""),
-                    )
-                )
-        finally:
-            await s.clientsession.close()
+            )
 
     async def _accept_later(
         self,
@@ -182,65 +388,85 @@ class Scheduler:
         delay: float,
         per: dict[str, Any],
         heading: str,
+        dry_run: bool,
     ) -> None:
         try:
             await asyncio.sleep(delay)
         except asyncio.CancelledError:
             return
-        s = spond.Spond(username=username, password=password)
-        try:
-            profile = await s.get_profile()
-            user_id = (
-                (profile.get("profile") or {}).get("id")
-                or profile.get("id")
-            )
-            if not user_id:
-                log.error("could not resolve profile id for accept")
-                append_history({
-                    "event_id": event_id, "heading": heading,
-                    "ok": False, "error": "no profile id",
-                })
-                return
 
-            response_key = per.get("response", "accepted")
-            payload = {response_key: "true"}
+        response_key = per.get("response", "accepted")
 
-            retries = int(per["retry_count"])
-            interval = float(per["retry_interval"])
-            for attempt in range(1, retries + 2):
-                try:
-                    result = await s.change_response(event_id, user_id, payload)
-                    if isinstance(result, dict) and "error" not in result:
-                        log.info(
-                            "%s event %s on attempt %d",
-                            response_key, event_id, attempt,
-                        )
-                        self._accepted.add(event_id)
-                        append_history({
-                            "event_id": event_id, "heading": heading,
-                            "response": response_key, "attempt": attempt,
-                            "ok": True,
-                        })
-                        return
-                    log.warning(
-                        "attempt %d for %s returned: %s",
-                        attempt, event_id, result,
-                    )
-                except Exception as exc:
-                    log.warning(
-                        "attempt %d for %s failed: %s", attempt, event_id, exc,
-                    )
-                await asyncio.sleep(interval)
-            log.error(
-                "gave up on event %s after %d attempts", event_id, retries + 1,
+        if dry_run:
+            log.info(
+                "[dry-run] would %s event %s (%s)", response_key, event_id, heading,
             )
+            self._accepted.add(event_id)
             append_history({
                 "event_id": event_id, "heading": heading,
-                "response": response_key, "ok": False,
-                "error": f"gave up after {retries + 1} attempts",
+                "response": response_key, "attempt": 0,
+                "ok": True, "dry_run": True,
             })
-        finally:
-            await s.clientsession.close()
+            return
+
+        s = await self.get_client(username, password)
+        try:
+            profile = await s.get_profile()
+        except Exception as exc:
+            log.error("could not fetch profile for accept: %s", exc)
+            append_history({
+                "event_id": event_id, "heading": heading,
+                "ok": False, "error": f"profile fetch: {exc}",
+            })
+            return
+
+        user_id = (
+            (profile.get("profile") or {}).get("id")
+            or profile.get("id")
+        )
+        if not user_id:
+            log.error("could not resolve profile id for accept")
+            append_history({
+                "event_id": event_id, "heading": heading,
+                "ok": False, "error": "no profile id",
+            })
+            return
+
+        payload = {response_key: "true"}
+        retries = int(per["retry_count"])
+        interval = float(per["retry_interval"])
+        for attempt in range(1, retries + 2):
+            try:
+                result = await s.change_response(event_id, user_id, payload)
+                if isinstance(result, dict) and "error" not in result:
+                    log.info(
+                        "%s event %s on attempt %d",
+                        response_key, event_id, attempt,
+                    )
+                    self._accepted.add(event_id)
+                    append_history({
+                        "event_id": event_id, "heading": heading,
+                        "response": response_key, "attempt": attempt,
+                        "ok": True,
+                    })
+                    return
+                log.warning(
+                    "attempt %d for %s returned: %s",
+                    attempt, event_id, result,
+                )
+            except Exception as exc:
+                log.warning(
+                    "attempt %d for %s failed: %s", attempt, event_id, exc,
+                )
+            await asyncio.sleep(interval)
+        log.error(
+            "gave up on event %s after %d attempts", event_id, retries + 1,
+        )
+        append_history({
+            "event_id": event_id, "heading": heading,
+            "response": response_key, "ok": False,
+            "error": f"gave up after {retries + 1} attempts",
+        })
 
 
 def _available_epoch(event: dict) -> float:
@@ -289,6 +515,8 @@ class Settings(BaseModel):
     retry_count: int = Field(ge=0, le=100)
     retry_interval: float = Field(ge=0.05, le=60)
     response: str = Field(pattern="^(accepted|declined|unconfirmed)$")
+    dry_run: bool = False
+    group_by: str = Field(default="heading", pattern="^(heading|day|week|year)$")
 
 
 class EventSettings(BaseModel):
@@ -308,25 +536,38 @@ async def api_get_config() -> dict[str, Any]:
         "has_password": bool(cfg.get("password")),
         "group_ids": cfg.get("group_ids", []),
         "selected_event_ids": cfg.get("selected_event_ids", []),
+        "dry_run": bool(cfg.get("dry_run")),
+        "group_by": cfg.get("group_by", "heading"),
     }
 
 
 @app.post("/api/config")
 async def api_save_config(body: Credentials) -> dict[str, str]:
-    s = spond.Spond(username=body.username, password=body.password)
-    try:
-        await s.login()
-    except AuthenticationError as exc:
-        raise HTTPException(401, f"Spond login failed: {exc}") from exc
-    finally:
-        await s.clientsession.close()
-
     cfg = load_config()
+    creds_changed = (
+        body.username != cfg.get("username")
+        or body.password != cfg.get("password")
+    )
     cfg["username"] = body.username
     cfg["password"] = body.password
     cfg["group_ids"] = [g.strip() for g in body.group_ids if g.strip()]
     save_config(cfg)
+
+    if creds_changed:
+        await scheduler.reset_client()
+        try:
+            s = await scheduler.get_client(body.username, body.password)
+            await s.login()
+        except AuthenticationError as exc:
+            raise HTTPException(401, f"Spond login failed: {exc}") from exc
+        except aiohttp.ContentTypeError as exc:
+            raise HTTPException(
+                429 if exc.status == 429 else 502,
+                "Spond rate-limited the login. Wait a few minutes and try again.",
+            ) from exc
+
     await scheduler.start()
+    scheduler.wake()
     return {"status": "ok"}
 
 
@@ -350,7 +591,11 @@ async def api_events() -> dict[str, Any]:
             "accepted": e["id"] in scheduler.accepted,
             "hasOverride": e["id"] in event_settings,
         })
-    return {"events": events, "defaults": cfg.get("defaults") or DEFAULT_SETTINGS}
+    return {
+        "events": events,
+        "defaults": cfg.get("defaults") or DEFAULT_SETTINGS,
+        "group_by": cfg.get("group_by", "heading"),
+    }
 
 
 @app.post("/api/selection")
@@ -358,13 +603,20 @@ async def api_selection(body: Selection) -> dict[str, str]:
     cfg = load_config()
     cfg["selected_event_ids"] = list(dict.fromkeys(body.event_ids))
     save_config(cfg)
+    scheduler.wake()  # so newly-selected events arm quickly (no extra Spond calls)
     return {"status": "ok"}
 
 
 @app.post("/api/refresh")
 async def api_refresh() -> dict[str, str]:
-    await scheduler._tick()  # noqa: SLF001
+    await scheduler.manual_refresh()
     return {"status": "ok"}
+
+
+@app.get("/api/status")
+async def api_status() -> dict[str, Any]:
+    """Cheap endpoint — no Spond calls, just internal scheduler state."""
+    return scheduler.status()
 
 
 @app.get("/api/settings")
@@ -373,13 +625,22 @@ async def api_get_settings() -> dict[str, Any]:
     return {
         "defaults": cfg.get("defaults") or DEFAULT_SETTINGS,
         "event_settings": cfg.get("event_settings") or {},
+        "dry_run": bool(cfg.get("dry_run")),
+        "group_by": cfg.get("group_by", "heading"),
     }
 
 
 @app.post("/api/settings")
 async def api_save_settings(body: Settings) -> dict[str, str]:
     cfg = load_config()
-    cfg["defaults"] = body.model_dump()
+    cfg["defaults"] = {
+        "initial_delay": body.initial_delay,
+        "retry_count": body.retry_count,
+        "retry_interval": body.retry_interval,
+        "response": body.response,
+    }
+    cfg["dry_run"] = body.dry_run
+    cfg["group_by"] = body.group_by
     save_config(cfg)
     return {"status": "ok"}
 
@@ -436,3 +697,12 @@ async def index() -> FileResponse:
 @app.get("/settings")
 async def settings_page() -> FileResponse:
     return FileResponse(str(STATIC_DIR / "settings.html"))
+
+
+@app.get("/logs")
+async def logs_page() -> FileResponse:
+    return FileResponse(str(STATIC_DIR / "logs.html"))
+
+
+# Silence secrets-unused warning without adding runtime cost.
+_ = secrets
