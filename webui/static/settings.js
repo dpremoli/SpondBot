@@ -5,18 +5,14 @@ async function api(path, opts = {}) {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail || res.statusText);
-  }
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 function fmt(ts) {
   if (!ts) return "—";
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
-  if (isNaN(d.getTime())) return String(ts);
-  return d.toLocaleString();
+  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
 }
 
 function escapeHtml(s) {
@@ -26,11 +22,13 @@ function escapeHtml(s) {
 }
 
 async function loadDefaults() {
-  const { defaults } = await api("/api/settings");
+  const { defaults, dry_run, group_by } = await api("/api/settings");
   $("#initial_delay").value = defaults.initial_delay;
   $("#retry_count").value = defaults.retry_count;
   $("#retry_interval").value = defaults.retry_interval;
   $("#response").value = defaults.response;
+  $("#dry_run").checked = !!dry_run;
+  $("#group_by").value = group_by || "heading";
 }
 
 async function saveDefaults(ev) {
@@ -40,6 +38,8 @@ async function saveDefaults(ev) {
     retry_count: parseInt($("#retry_count").value, 10),
     retry_interval: parseFloat($("#retry_interval").value),
     response: $("#response").value,
+    dry_run: $("#dry_run").checked,
+    group_by: $("#group_by").value,
   };
   const status = $("#defaults-status");
   try {
@@ -97,30 +97,6 @@ async function loadOverrides() {
   container.appendChild(tbl);
 }
 
-async function loadHistory() {
-  const { entries } = await api("/api/history?limit=100");
-  const tbody = document.querySelector("#history tbody");
-  tbody.innerHTML = "";
-  if (entries.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="muted">No activity yet.</td></tr>`;
-    return;
-  }
-  for (const e of entries) {
-    const tr = document.createElement("tr");
-    tr.className = e.ok ? "accepted" : "failed";
-    tr.innerHTML = `
-      <td>${escapeHtml(fmt(e.ts))}</td>
-      <td>${escapeHtml(e.heading || e.event_id)}</td>
-      <td>${escapeHtml(e.response || "—")}</td>
-      <td>${e.attempt ?? "—"}</td>
-      <td>${e.ok ? "ok" : escapeHtml(e.error || "failed")}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
 $("#defaults-form").addEventListener("submit", saveDefaults);
 loadDefaults().catch(() => {});
 loadOverrides().catch(() => {});
-loadHistory().catch(() => {});
-setInterval(loadHistory, 30000);

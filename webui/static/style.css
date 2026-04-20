@@ -106,3 +106,38 @@ tr.available td:nth-child(2) { color: var(--warn); }
 tr.failed td { color: var(--err); }
 
 table.sessions input[type=checkbox] { width: auto; margin: 0; }
+
+/* status bar */
+.status-bar {
+  position: sticky; top: 0; z-index: 5;
+  background: #0b0d11;
+  border-bottom: 1px solid var(--border);
+  padding: .4rem 1rem;
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .85rem; color: var(--muted);
+}
+.status-bar .spacer { flex: 1; }
+.dot {
+  width: .6rem; height: .6rem; border-radius: 50%;
+  background: var(--muted); display: inline-block;
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.err { background: var(--err); }
+
+.tag {
+  font-size: .7rem; padding: .1rem .4rem; border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.dry-tag { color: var(--warn); border-color: var(--warn); }
+
+/* inline labels in toolbars */
+label.inline {
+  display: inline-flex; align-items: center; gap: .35rem;
+  margin: 0; color: var(--muted); font-size: .85rem;
+}
+label.inline input, label.inline select { width: auto; margin: 0; }
+
+/* past events */
+tr.past td { color: #6b7280; }
+tr.past input[disabled] { opacity: .4; }

@@ -10,9 +10,19 @@
 <header>
   <nav>
     <a href="/" class="active">Events</a>
+    <a href="/logs">Logs</a>
     <a href="/settings">Settings</a>
   </nav>
 </header>
+
+<div id="status-bar" class="status-bar">
+  <span class="dot" id="status-dot"></span>
+  <span id="status-text">loading…</span>
+  <span class="spacer"></span>
+  <span id="status-next"></span>
+  <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
+</div>
+
 <main>
   <h1>SpondBot</h1>
   <p class="sub">Auto-accept Spond event invites the moment they open.</p>
@@ -38,6 +48,17 @@
     <div class="card-header">
       <h2>Events</h2>
       <div class="toolbar">
+        <label class="inline">Group by
+          <select id="group_by">
+            <option value="heading">heading</option>
+            <option value="day">day</option>
+            <option value="week">week</option>
+            <option value="year">year</option>
+          </select>
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="show-past" /> show past
+        </label>
         <button id="refresh">Refresh</button>
         <button id="save-selection">Save selection</button>
         <span id="events-status" class="status"></span>

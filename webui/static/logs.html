@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SpondBot — Logs</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <nav>
+    <a href="/">Events</a>
+    <a href="/logs" class="active">Logs</a>
+    <a href="/settings">Settings</a>
+  </nav>
+</header>
+<main>
+  <h1>Logs</h1>
+  <p class="sub">Every auto-response the bot has attempted.</p>
+
+  <section class="card">
+    <div class="toolbar">
+      <button id="reload">Reload</button>
+      <span id="logs-status" class="status"></span>
+    </div>
+    <table id="history">
+      <thead>
+        <tr>
+          <th>Time</th><th>Event</th><th>Response</th><th>Attempt</th><th>Result</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+<script src="/static/logs.js"></script>
+</body>
+</html>

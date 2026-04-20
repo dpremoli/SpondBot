@@ -10,6 +10,7 @@
 <header>
   <nav>
     <a href="/">Events</a>
+    <a href="/logs">Logs</a>
     <a href="/settings" class="active">Settings</a>
   </nav>
 </header>
@@ -36,6 +37,18 @@
           <option value="unconfirmed">unconfirmed</option>
         </select>
       </label>
+      <label>Group events by (default on the Events page)
+        <select id="group_by">
+          <option value="heading">heading (recurring series)</option>
+          <option value="day">day</option>
+          <option value="week">week</option>
+          <option value="year">year</option>
+        </select>
+      </label>
+      <label class="inline">
+        <input type="checkbox" id="dry_run" />
+        Dry-run mode — log what would happen but don't actually respond
+      </label>
       <button type="submit">Save defaults</button>
       <span id="defaults-status" class="status"></span>
     </form>
@@ -45,17 +58,6 @@
     <h2>Per-event overrides</h2>
     <p class="muted">Anything set here takes precedence over the defaults for that specific event.</p>
     <div id="overrides"></div>
-  </section>
-
-  <section class="card">
-    <h2>History</h2>
-    <p class="muted">Most recent auto-response attempts.</p>
-    <table id="history">
-      <thead>
-        <tr><th>Time</th><th>Event</th><th>Response</th><th>Attempt</th><th>Result</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
   </section>
 </main>
 <script src="/static/settings.js"></script>
