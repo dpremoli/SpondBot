@@ -7,6 +7,12 @@
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+<header>
+  <nav>
+    <a href="/" class="active">Events</a>
+    <a href="/settings">Settings</a>
+  </nav>
+</header>
 <main>
   <h1>SpondBot</h1>
   <p class="sub">Auto-accept Spond event invites the moment they open.</p>
@@ -29,25 +35,15 @@
   </section>
 
   <section class="card">
-    <h2>Events</h2>
-    <div class="toolbar">
-      <button id="refresh">Refresh now</button>
-      <button id="save-selection">Save selection</button>
-      <span id="events-status" class="status"></span>
+    <div class="card-header">
+      <h2>Events</h2>
+      <div class="toolbar">
+        <button id="refresh">Refresh</button>
+        <button id="save-selection">Save selection</button>
+        <span id="events-status" class="status"></span>
+      </div>
     </div>
-    <table id="events">
-      <thead>
-        <tr>
-          <th>Auto-accept</th>
-          <th>Event</th>
-          <th>Group</th>
-          <th>Available (invite time)</th>
-          <th>Starts</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div id="event-groups"></div>
   </section>
 </main>
 <script src="/static/app.js"></script>
