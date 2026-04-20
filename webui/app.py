@@ -603,7 +603,6 @@ async def api_selection(body: Selection) -> dict[str, str]:
     cfg = load_config()
     cfg["selected_event_ids"] = list(dict.fromkeys(body.event_ids))
     save_config(cfg)
-    scheduler.wake()  # so newly-selected events arm quickly (no extra Spond calls)
     return {"status": "ok"}
 
 

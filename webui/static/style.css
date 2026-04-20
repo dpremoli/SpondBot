@@ -20,6 +20,7 @@ body {
 header {
   border-bottom: 1px solid var(--border);
   background: #0b0d11;
+  position: sticky; top: 0; z-index: 10;
 }
 header nav {
   max-width: 960px; margin: 0 auto; padding: .75rem 1rem;
