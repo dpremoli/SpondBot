@@ -9,3 +9,6 @@ services:
       - ./data:/data
     environment:
       - LOG_LEVEL=INFO
+    labels:
+      net.unraid.docker.icon: "https://raw.githubusercontent.com/dpremoli/SpondBot/refs/heads/main/logo.png"
+      net.unraid.docker.webui: "http://[IP]:[PORT:8888]"
