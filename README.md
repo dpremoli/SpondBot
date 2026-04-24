@@ -13,8 +13,18 @@ they open. Built on the unofficial [Spond Python library](https://github.com/Ole
 - `0.3s` after each selected event opens, SpondBot fires an accept. If the
   call fails (event not yet live, transient error, etc.) it retries up to
   **10 more times, one every 0.3s**.
+- A **live countdown banner** appears at the top of the page starting
+  5 minutes before any event kicks off, updating every second.
 
 Config is persisted to `data/config.json` so the bot survives restarts.
+
+### Performance notes
+
+- The Spond user profile is pre-fetched during each scheduled poll and cached,
+  so at the moment an invite opens the bot goes straight to accepting — no
+  extra round-trip to Spond's profile endpoint.
+- Polling tightens automatically to every 2 minutes when an armed accept is
+  within 5 minutes of firing. The baseline is every 15 minutes.
 
 ## Run locally
 

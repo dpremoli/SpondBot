@@ -393,33 +393,87 @@ async function saveSelection() {
   }
 }
 
+let _lastStatus = null;
+
 async function loadStatus() {
   try {
-    const s = await api("/api/status");
-    const dot = $("#status-dot");
-    const text = $("#status-text");
-    if (s.last_error) {
-      dot.className = "dot err";
-      text.textContent = s.last_error;
-    } else if (!s.logged_in && s.last_tick_ts === null) {
-      dot.className = "dot warn";
-      text.textContent = "not logged in";
-    } else {
-      dot.className = "dot ok";
-      const last = s.last_tick_ts ? fmtRel(s.last_tick_ts) : "never";
-      text.textContent = `healthy · last check ${last} · ${s.events_cached} events · ${s.scheduled_count} armed`;
-    }
-    const next = $("#status-next");
-    if (s.next_fire_ts) {
-      next.textContent = `next: ${s.next_event_heading || "—"} ${fmtRel(s.next_fire_ts)}`;
-    } else {
-      next.textContent = "";
-    }
-    $("#status-dry").hidden = !s.dry_run;
+    _lastStatus = await api("/api/status");
+    renderStatus(_lastStatus);
   } catch {
     // status bar shouldn't throw
   }
 }
+
+function renderStatus(s) {
+  const dot = $("#status-dot");
+  const text = $("#status-text");
+  if (s.last_error) {
+    dot.className = "dot err";
+    text.textContent = s.last_error;
+  } else if (!s.logged_in && s.last_tick_ts === null) {
+    dot.className = "dot warn";
+    text.textContent = "not logged in";
+  } else {
+    dot.className = "dot ok";
+    const last = s.last_tick_ts ? fmtRel(s.last_tick_ts) : "never";
+    text.textContent = `healthy · last check ${last} · ${s.events_cached} events · ${s.scheduled_count} armed`;
+  }
+  const next = $("#status-next");
+  if (s.next_fire_ts) {
+    next.textContent = `next: ${s.next_event_heading || "—"} ${fmtRel(s.next_fire_ts)}`;
+  } else {
+    next.textContent = "";
+  }
+  $("#status-dry").hidden = !s.dry_run;
+}
+
+function fmtCountdown(totalSecs) {
+  const s = Math.floor(totalSecs);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}m ${String(sec).padStart(2, "0")}s` : `${sec}s`;
+}
+
+function updateUpcomingBanner() {
+  const banner = $("#upcoming-banner");
+  const list = $("#upcoming-list");
+  if (!banner || !list) return;
+
+  const now = Date.now();
+  const WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+  const soon = cachedEvents.filter((e) => {
+    if (!e.startTimestamp) return false;
+    const start = new Date(e.startTimestamp).getTime();
+    const delta = start - now;
+    return delta > -60_000 && delta <= WINDOW_MS; // up to 1 min after start
+  });
+
+  if (soon.length === 0) {
+    banner.hidden = true;
+    return;
+  }
+
+  banner.hidden = false;
+  list.innerHTML = soon
+    .sort((a, b) => new Date(a.startTimestamp) - new Date(b.startTimestamp))
+    .map((e) => {
+      const start = new Date(e.startTimestamp).getTime();
+      const delta = (start - now) / 1000;
+      const countdown =
+        delta > 0
+          ? `<strong>${fmtCountdown(delta)}</strong>`
+          : `<strong class="started">started</strong>`;
+      return `<span class="upcoming-event">${escapeHtml(e.heading || "—")} — ${countdown}</span>`;
+    })
+    .join("");
+}
+
+// Live ticker — updates countdowns every second without any extra API calls.
+setInterval(() => {
+  if (_lastStatus) renderStatus(_lastStatus);
+  updateUpcomingBanner();
+}, 1000);
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -465,4 +519,4 @@ $("#show-past").addEventListener("change", () => {
 loadConfig()
   .then(() => Promise.all([loadEvents(), loadStatus()]))
   .catch(() => {});
-setInterval(loadStatus, 15000);
+setInterval(loadStatus, 15_000);

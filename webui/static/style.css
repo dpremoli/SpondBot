@@ -142,3 +142,34 @@ label.inline input, label.inline select { width: auto; margin: 0; }
 /* past events */
 tr.past td { color: #6b7280; }
 tr.past input[disabled] { opacity: .4; }
+
+/* upcoming events banner */
+.upcoming-banner {
+  position: sticky;
+  top: calc(var(--header-h, 44px) + var(--statusbar-h, 33px));
+  z-index: 4;
+  background: #1a1200;
+  border-bottom: 2px solid var(--warn);
+  padding: .5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  font-size: .9rem;
+  animation: pulse-border 1s ease-in-out infinite alternate;
+}
+@keyframes pulse-border {
+  from { border-color: var(--warn); }
+  to   { border-color: #7c5a00; }
+}
+.upcoming-label {
+  color: var(--warn);
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: .03em;
+}
+.upcoming-event {
+  color: var(--fg);
+  margin-right: 1.25rem;
+}
+.upcoming-event strong { color: var(--warn); font-variant-numeric: tabular-nums; }
+.upcoming-event strong.started { color: var(--ok); }

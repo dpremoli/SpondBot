@@ -181,6 +181,7 @@ class Scheduler:
         self._last_error: str | None = None
         self._last_tick_ts: float | None = None
         self._last_manual_refresh_ts: float = 0.0
+        self._cached_user_id: str | None = None
         self._wake_event = asyncio.Event()
 
     @property
@@ -259,6 +260,7 @@ class Scheduler:
                     pass
             self._client = None
             self._client_key = None
+            self._cached_user_id = None
 
     async def start(self) -> None:
         if self._task is None or self._task.done():
@@ -355,6 +357,21 @@ class Scheduler:
             log.exception("tick failure")
             return
 
+        # Pre-fetch user profile so _accept_later doesn't need an API call at fire time.
+        if self._cached_user_id is None:
+            try:
+                profile = await s.get_profile()
+                uid = (
+                    (profile.get("profile") or {}).get("id")
+                    or profile.get("id")
+                )
+                if uid:
+                    self._cached_user_id = uid
+                else:
+                    log.warning("could not resolve profile id from profile response")
+            except Exception as exc:
+                log.warning("profile pre-fetch failed: %s", exc)
+
         now = time.time()
         for e in all_events:
             eid = e["id"]
@@ -376,6 +393,7 @@ class Scheduler:
                 self._accept_later(
                     cfg["username"], cfg["password"], eid, delay, per,
                     e.get("heading", ""), bool(cfg.get("dry_run")),
+                    self._cached_user_id,
                 )
             )
 
@@ -388,6 +406,7 @@ class Scheduler:
         per: dict[str, Any],
         heading: str,
         dry_run: bool,
+        user_id: str | None = None,
     ) -> None:
         try:
             await asyncio.sleep(delay)
@@ -409,20 +428,23 @@ class Scheduler:
             return
 
         s = await self.get_client(username, password)
-        try:
-            profile = await s.get_profile()
-        except Exception as exc:
-            log.error("could not fetch profile for accept: %s", exc)
-            append_history({
-                "event_id": event_id, "heading": heading,
-                "ok": False, "error": f"profile fetch: {exc}",
-            })
-            return
 
-        user_id = (
-            (profile.get("profile") or {}).get("id")
-            or profile.get("id")
-        )
+        # Fall back to a live profile fetch if the pre-cached id is missing.
+        if not user_id:
+            try:
+                profile = await s.get_profile()
+                user_id = (
+                    (profile.get("profile") or {}).get("id")
+                    or profile.get("id")
+                )
+            except Exception as exc:
+                log.error("could not fetch profile for accept: %s", exc)
+                append_history({
+                    "event_id": event_id, "heading": heading,
+                    "ok": False, "error": f"profile fetch: {exc}",
+                })
+                return
+
         if not user_id:
             log.error("could not resolve profile id for accept")
             append_history({
@@ -457,7 +479,8 @@ class Scheduler:
                 log.warning(
                     "attempt %d for %s failed: %s", attempt, event_id, exc,
                 )
-            await asyncio.sleep(interval)
+            if attempt < retries + 1:
+                await asyncio.sleep(interval)
         log.error(
             "gave up on event %s after %d attempts", event_id, retries + 1,
         )
