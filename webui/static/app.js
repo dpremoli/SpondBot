@@ -278,10 +278,12 @@ function renderGroup(g) {
 
   const tbl = document.createElement("table");
   tbl.className = "sessions";
+  const showName = groupByMode !== "heading";
   tbl.innerHTML = `
     <thead>
       <tr>
         <th></th>
+        ${showName ? "<th>Event</th>" : ""}
         <th>Invite opens</th>
         <th>Starts</th>
         <th>Ends</th>
@@ -374,7 +376,13 @@ function renderSession(s, groupKey) {
     tdOv.appendChild(ovBtn);
   }
 
-  tr.append(tdCb, tdInvite, tdStart, tdEnd, tdStatus, tdOv);
+  if (groupByMode !== "heading") {
+    const tdName = document.createElement("td");
+    tdName.textContent = s.heading || "—";
+    tr.append(tdCb, tdName, tdInvite, tdStart, tdEnd, tdStatus, tdOv);
+  } else {
+    tr.append(tdCb, tdInvite, tdStart, tdEnd, tdStatus, tdOv);
+  }
   return tr;
 }
 
