@@ -126,6 +126,15 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
 });
 
+async function loadVersion() {
+  try {
+    const s = await api("/api/status");
+    const vEl = document.querySelector("#nav-version");
+    if (vEl && s.version) vEl.textContent = `v${s.version}`;
+  } catch { /* non-critical */ }
+}
+
 $("#reload").addEventListener("click", load);
 load();
+loadVersion();
 setInterval(load, 30000);

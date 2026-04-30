@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field
 
 from spond import AuthenticationError, spond
 
+VERSION = "0.5.0"
+
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -232,6 +234,7 @@ class Scheduler:
             "dry_run": bool(cfg.get("dry_run")),
             "logged_in": self._client is not None,
             "poll_interval": self._current_poll_interval(),
+            "version": VERSION,
         }
 
     def _current_poll_interval(self) -> int:

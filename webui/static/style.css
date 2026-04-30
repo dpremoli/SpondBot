@@ -11,6 +11,7 @@
   --err: #f87171;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -32,6 +33,8 @@ header nav a {
 }
 header nav a.active, header nav a:hover { color: var(--fg); }
 header nav a.active { border-bottom: 2px solid var(--accent); }
+.nav-spacer { flex: 1; }
+.nav-version { color: var(--muted); font-size: .75rem; opacity: .6; }
 
 main { max-width: 960px; margin: 0 auto; padding: 1.5rem 1rem; }
 h1 { margin: 0 0 .2rem; }

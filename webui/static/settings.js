@@ -106,6 +106,15 @@ async function loadOverrides() {
   container.appendChild(tbl);
 }
 
+async function loadVersion() {
+  try {
+    const s = await api("/api/status");
+    const vEl = document.querySelector("#nav-version");
+    if (vEl && s.version) vEl.textContent = `v${s.version}`;
+  } catch { /* non-critical */ }
+}
+
 $("#defaults-form").addEventListener("submit", saveDefaults);
 loadDefaults().catch(() => {});
 loadOverrides().catch(() => {});
+loadVersion();

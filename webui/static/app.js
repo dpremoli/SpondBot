@@ -438,6 +438,8 @@ async function loadStatus() {
 }
 
 function renderStatus(s) {
+  const vEl = $("#nav-version");
+  if (vEl && s.version) vEl.textContent = `v${s.version}`;
   const dot = $("#status-dot");
   const text = $("#status-text");
   if (s.last_error) {
