@@ -518,6 +518,7 @@ class Scheduler:
         payload = {response_key: "true"}
         retries = int(per["retry_count"])
         interval = float(per["retry_interval"])
+        consecutive_404s = 0
         for attempt in range(1, retries + 2):
             try:
                 result = await s.change_response(event_id, user_id, payload)
@@ -536,35 +537,41 @@ class Scheduler:
                     append_history({**_base, "response": response_key, "attempt": attempt,
                                     "ok": True, "waitlisted": waitlisted})
                     return
-                # 404 "Recipient is not found" means this user isn't invited to
-                # this specific occurrence — no point retrying.
+                # 404 may be a transient race condition (invite just opened,
+                # Spond backend hasn't propagated it yet) — retry like any
+                # other failure rather than giving up immediately.
                 if result.get("errorCode") == 404:
+                    consecutive_404s += 1
                     log.warning(
-                        "event %s: not invited (404) — skipping permanently",
-                        event_id,
+                        "attempt %d for %s: not invited (404) — %s",
+                        attempt, event_id,
+                        "retrying" if attempt < retries + 1 else "giving up",
                     )
-                    self._permanently_failed.add(event_id)
-                    _save_id_set(FAILED_PATH, self._permanently_failed)
-                    append_history({**_base, "response": response_key, "ok": False,
-                                    "error": "not invited to this occurrence"})
-                    return
-                log.warning(
-                    "attempt %d for %s returned: %s",
-                    attempt, event_id, result,
-                )
+                else:
+                    consecutive_404s = 0
+                    log.warning(
+                        "attempt %d for %s returned: %s",
+                        attempt, event_id, result,
+                    )
             except Exception as exc:
+                consecutive_404s = 0
                 log.warning(
                     "attempt %d for %s failed: %s", attempt, event_id, exc,
                 )
             if attempt < retries + 1:
                 await asyncio.sleep(interval)
-        log.error(
-            "gave up on event %s after %d attempts", event_id, retries + 1,
-        )
+        total = retries + 1
+        log.error("gave up on event %s after %d attempts", event_id, total)
         self._permanently_failed.add(event_id)
         _save_id_set(FAILED_PATH, self._permanently_failed)
-        append_history({**_base, "response": response_key, "ok": False,
-                        "error": f"gave up after {retries + 1} attempts"})
+        # If every attempt was a 404, report as "not invited"; otherwise report
+        # exhausted retries so the two failure modes remain distinguishable.
+        error_msg = (
+            "not invited to this occurrence"
+            if consecutive_404s == total
+            else f"gave up after {total} attempts"
+        )
+        append_history({**_base, "response": response_key, "ok": False, "error": error_msg})
 
 
 def _available_epoch(event: dict) -> float:

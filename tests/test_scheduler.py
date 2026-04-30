@@ -69,12 +69,14 @@ async def test_accept_waitlisted(tmp_path):
     assert any(e["ok"] and e["waitlisted"] and e["event_id"] == EVENT for e in entries)
 
 
-# ---------- 404 fast-fail ----------
+# ---------- 404 retried (race condition fix) ----------
 
 @pytest.mark.anyio
-async def test_404_marks_permanently_failed(tmp_path):
+async def test_404_retried_and_eventually_fails(tmp_path):
+    """Persistent 404 across all attempts → permanently failed with 'not invited' message."""
     s = make_scheduler(tmp_path)
-    await run_accept(s, [{"errorCode": 404}], tmp_path)
+    # PER has retry_count=2 → 3 total attempts; all return 404
+    await run_accept(s, [{"errorCode": 404}] * 10, tmp_path)
 
     assert EVENT in s._permanently_failed
     assert EVENT not in s._accepted
@@ -83,8 +85,8 @@ async def test_404_marks_permanently_failed(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_404_does_not_retry(tmp_path):
-    """change_response should only be called once on 404."""
+async def test_404_retries_all_attempts(tmp_path):
+    """Bot retries on 404 (doesn't fast-fail); change_response called retry_count+1 times."""
     s = make_scheduler(tmp_path)
     mock_client = AsyncMock()
     mock_client.change_response = AsyncMock(return_value={"errorCode": 404})
@@ -95,7 +97,21 @@ async def test_404_does_not_retry(tmp_path):
          patch.object(s, "get_client", return_value=mock_client):
         await s._accept_later("u", "p", EVENT, 0.0, PER, HEADING, False, USER, None)
 
-    assert mock_client.change_response.call_count == 1
+    # PER retry_count=2 → 3 total attempts (not 1 as before)
+    assert mock_client.change_response.call_count == 3
+
+
+@pytest.mark.anyio
+async def test_404_then_success(tmp_path):
+    """404 on first attempt (invite race) then succeeds on retry."""
+    s = make_scheduler(tmp_path)
+    results = [{"errorCode": 404}, {"acceptedIds": [USER]}]
+    await run_accept(s, results, tmp_path)
+
+    assert EVENT in s._accepted
+    assert EVENT not in s._permanently_failed
+    entries = _read_history(tmp_path)
+    assert any(e["ok"] and e["event_id"] == EVENT for e in entries)
 
 
 # ---------- retry then succeed ----------
