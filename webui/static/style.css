@@ -105,10 +105,10 @@ th, td {
   text-align: left; vertical-align: top;
 }
 th { color: var(--muted); font-weight: 500; }
-tr.accepted td { color: var(--ok); }
-tr.waitlisted td { color: var(--warn); }
+tr.accepted td.result { color: var(--ok); }
+tr.waitlisted td.result { color: var(--warn); }
+tr.failed td.result { color: var(--err); }
 tr.available td:nth-child(2) { color: var(--warn); }
-tr.failed td { color: var(--err); }
 
 table.sessions input[type=checkbox] { width: auto; margin: 0; }
 

@@ -405,10 +405,22 @@ class Scheduler:
             except Exception as exc:
                 log.warning("profile pre-fetch failed: %s", exc)
 
+        uid = self._cached_user_id
         now = time.time()
         for e in all_events:
             eid = e["id"]
-            if eid not in selected or eid in self._accepted:
+            if eid not in selected:
+                continue
+
+            # Sync in-memory state from the live Spond responses so restarts
+            # don't re-arm events the bot (or user) already responded to.
+            responses = e.get("responses") or {}
+            if uid and uid in (responses.get("acceptedIds") or []):
+                self._accepted.add(eid)
+            if uid and uid in (responses.get("waitinglistIds") or []):
+                self._waitlisted.add(eid)
+
+            if eid in self._accepted or eid in self._waitlisted:
                 continue
             if eid in self._scheduled and not self._scheduled[eid].done():
                 continue
@@ -427,6 +439,7 @@ class Scheduler:
                     cfg["username"], cfg["password"], eid, delay, per,
                     e.get("heading", ""), bool(cfg.get("dry_run")),
                     self._cached_user_id,
+                    e.get("startTimestamp"),
                 )
             )
 
@@ -440,6 +453,7 @@ class Scheduler:
         heading: str,
         dry_run: bool,
         user_id: str | None = None,
+        start_ts: str | None = None,
     ) -> None:
         try:
             await asyncio.sleep(delay)
@@ -447,17 +461,15 @@ class Scheduler:
             return
 
         response_key = per.get("response", "accepted")
+        _base = {"event_id": event_id, "heading": heading, "startTimestamp": start_ts}
 
         if dry_run:
             log.info(
                 "[dry-run] would %s event %s (%s)", response_key, event_id, heading,
             )
             self._accepted.add(event_id)
-            append_history({
-                "event_id": event_id, "heading": heading,
-                "response": response_key, "attempt": 0,
-                "ok": True, "dry_run": True,
-            })
+            append_history({**_base, "response": response_key, "attempt": 0,
+                            "ok": True, "dry_run": True})
             return
 
         s = await self.get_client(username, password)
@@ -472,18 +484,12 @@ class Scheduler:
                 )
             except Exception as exc:
                 log.error("could not fetch profile for accept: %s", exc)
-                append_history({
-                    "event_id": event_id, "heading": heading,
-                    "ok": False, "error": f"profile fetch: {exc}",
-                })
+                append_history({**_base, "ok": False, "error": f"profile fetch: {exc}"})
                 return
 
         if not user_id:
             log.error("could not resolve profile id for accept")
-            append_history({
-                "event_id": event_id, "heading": heading,
-                "ok": False, "error": "no profile id",
-            })
+            append_history({**_base, "ok": False, "error": "no profile id"})
             return
 
         payload = {response_key: "true"}
@@ -503,11 +509,8 @@ class Scheduler:
                         log.info("%s event %s on attempt %d", response_key, event_id, attempt)
                         self._accepted.add(event_id)
                         self._waitlisted.discard(event_id)
-                    append_history({
-                        "event_id": event_id, "heading": heading,
-                        "response": response_key, "attempt": attempt,
-                        "ok": True, "waitlisted": waitlisted,
-                    })
+                    append_history({**_base, "response": response_key, "attempt": attempt,
+                                    "ok": True, "waitlisted": waitlisted})
                     return
                 log.warning(
                     "attempt %d for %s returned: %s",
@@ -522,11 +525,8 @@ class Scheduler:
         log.error(
             "gave up on event %s after %d attempts", event_id, retries + 1,
         )
-        append_history({
-            "event_id": event_id, "heading": heading,
-            "response": response_key, "ok": False,
-            "error": f"gave up after {retries + 1} attempts",
-        })
+        append_history({**_base, "response": response_key, "ok": False,
+                        "error": f"gave up after {retries + 1} attempts"})
 
 
 def _available_epoch(event: dict) -> float:

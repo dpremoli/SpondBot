@@ -33,6 +33,15 @@ function rowClass(e) {
   return "accepted";
 }
 
+function eventLabel(e) {
+  const name = e.heading || e.event_id;
+  if (!e.startTimestamp) return escapeHtml(name);
+  const d = new Date(e.startTimestamp);
+  if (isNaN(d.getTime())) return escapeHtml(name);
+  const dateStr = d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+  return `${escapeHtml(name)} <span class="muted" style="font-size:.8em">${dateStr}</span>`;
+}
+
 function resultText(e) {
   if (!e.ok) return e.error || "failed";
   if (e.dry_run) return "ok (dry-run)";
@@ -57,10 +66,10 @@ async function load() {
       tr.title = "Click to see full attempt log for this event";
       tr.innerHTML = `
         <td>${escapeHtml(fmt(e.ts))}</td>
-        <td>${escapeHtml(e.heading || e.event_id)}</td>
+        <td>${eventLabel(e)}</td>
         <td>${escapeHtml(e.response || "—")}</td>
         <td>${e.attempt ?? "—"}</td>
-        <td>${escapeHtml(resultText(e))}</td>
+        <td class="result">${escapeHtml(resultText(e))}</td>
       `;
       tr.addEventListener("click", () => openEventModal(e.event_id, e.heading));
       tbody.appendChild(tr);
@@ -104,7 +113,7 @@ async function openEventModal(eventId, heading) {
         <td>${escapeHtml(fmt(e.ts))}</td>
         <td>${e.attempt ?? "—"}</td>
         <td>${escapeHtml(e.response || "—")}</td>
-        <td>${escapeHtml(resultText(e))}</td>
+        <td class="result">${escapeHtml(resultText(e))}</td>
         <td>${detail}</td>
       `;
       tbody.appendChild(tr);
