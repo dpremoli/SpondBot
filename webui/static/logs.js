@@ -27,6 +27,19 @@ function escapeHtml(s) {
   );
 }
 
+function rowClass(e) {
+  if (!e.ok) return "failed";
+  if (e.waitlisted) return "waitlisted";
+  return "accepted";
+}
+
+function resultText(e) {
+  if (!e.ok) return e.error || "failed";
+  if (e.dry_run) return "ok (dry-run)";
+  if (e.waitlisted) return "waitlisted";
+  return "accepted";
+}
+
 async function load() {
   const status = $("#logs-status");
   try {
@@ -40,19 +53,16 @@ async function load() {
     }
     for (const e of entries) {
       const tr = document.createElement("tr");
-      tr.className = e.ok ? "accepted" : "failed";
-      const resultText = e.ok
-        ? e.dry_run
-          ? "ok (dry-run)"
-          : "ok"
-        : e.error || "failed";
+      tr.className = rowClass(e) + " clickable";
+      tr.title = "Click to see full attempt log for this event";
       tr.innerHTML = `
         <td>${escapeHtml(fmt(e.ts))}</td>
         <td>${escapeHtml(e.heading || e.event_id)}</td>
         <td>${escapeHtml(e.response || "—")}</td>
         <td>${e.attempt ?? "—"}</td>
-        <td>${escapeHtml(resultText)}</td>
+        <td>${escapeHtml(resultText(e))}</td>
       `;
+      tr.addEventListener("click", () => openEventModal(e.event_id, e.heading));
       tbody.appendChild(tr);
     }
     status.textContent = `${entries.length} entries`;
@@ -62,6 +72,59 @@ async function load() {
     status.className = "status err";
   }
 }
+
+async function openEventModal(eventId, heading) {
+  const modal = $("#event-modal");
+  const title = $("#modal-title");
+  const idEl = $("#modal-event-id");
+  const tbody = document.querySelector("#modal-table tbody");
+
+  title.textContent = heading || eventId;
+  idEl.textContent = `event id: ${eventId}`;
+  tbody.innerHTML = `<tr><td colspan="5" class="muted">Loading…</td></tr>`;
+  modal.hidden = false;
+
+  try {
+    const { entries } = await api(`/api/history?event_id=${encodeURIComponent(eventId)}`);
+    tbody.innerHTML = "";
+    if (entries.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="muted">No history for this event.</td></tr>`;
+      return;
+    }
+    // Show oldest first in the modal so the timeline reads top-to-bottom
+    for (const e of [...entries].reverse()) {
+      const tr = document.createElement("tr");
+      tr.className = rowClass(e);
+      const detail = e.error
+        ? escapeHtml(e.error)
+        : e.dry_run
+        ? '<span class="muted">dry-run</span>'
+        : "";
+      tr.innerHTML = `
+        <td>${escapeHtml(fmt(e.ts))}</td>
+        <td>${e.attempt ?? "—"}</td>
+        <td>${escapeHtml(e.response || "—")}</td>
+        <td>${escapeHtml(resultText(e))}</td>
+        <td>${detail}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="err">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function closeModal() {
+  $("#event-modal").hidden = true;
+}
+
+$("#modal-close").addEventListener("click", closeModal);
+$("#event-modal").addEventListener("click", (e) => {
+  if (e.target === $("#event-modal")) closeModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeModal();
+});
 
 $("#reload").addEventListener("click", load);
 load();

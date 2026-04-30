@@ -110,8 +110,14 @@ def decrypt_password(stored: str) -> str:
 
 # ---------- config persistence ----------
 
+_config_cache: dict[str, Any] | None = None
+
+
 def load_config() -> dict[str, Any]:
-    """Load config and return it with the password decrypted."""
+    """Return config with the password decrypted. Reads disk only once."""
+    global _config_cache
+    if _config_cache is not None:
+        return dict(_config_cache)
     if CONFIG_PATH.exists():
         cfg = json.loads(CONFIG_PATH.read_text())
     else:
@@ -124,11 +130,13 @@ def load_config() -> dict[str, Any]:
     cfg.setdefault("event_settings", {})
     cfg.setdefault("dry_run", False)
     cfg.setdefault("group_by", "heading")  # heading | day | week | year
+    _config_cache = dict(cfg)
     return cfg
 
 
 def save_config(cfg: dict[str, Any]) -> None:
-    """Persist config; the password is encrypted before writing."""
+    """Persist config; the password is encrypted before writing. Invalidates cache."""
+    global _config_cache
     stored = dict(cfg)
     stored["password"] = encrypt_password(cfg.get("password", ""))
     CONFIG_PATH.write_text(json.dumps(stored, indent=2))
@@ -136,6 +144,7 @@ def save_config(cfg: dict[str, Any]) -> None:
         os.chmod(CONFIG_PATH, 0o600)
     except OSError:
         pass
+    _config_cache = dict(cfg)  # update cache with the just-saved values
 
 
 def settings_for(cfg: dict[str, Any], event_id: str) -> dict[str, Any]:
@@ -151,16 +160,20 @@ def append_history(entry: dict[str, Any]) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def read_history(limit: int = 100) -> list[dict[str, Any]]:
+def read_history(limit: int = 100, event_id: str | None = None) -> list[dict[str, Any]]:
     if not HISTORY_PATH.exists():
         return []
-    lines = HISTORY_PATH.read_text().splitlines()[-limit:]
+    lines = HISTORY_PATH.read_text().splitlines()
     out = []
     for line in lines:
         try:
-            out.append(json.loads(line))
+            entry = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if event_id is None or entry.get("event_id") == event_id:
+            out.append(entry)
+    if event_id is None:
+        out = out[-limit:]
     return list(reversed(out))
 
 
@@ -174,6 +187,7 @@ class Scheduler:
         self._scheduled: dict[str, asyncio.Task] = {}
         self._scheduled_fire_ts: dict[str, float] = {}  # event_id -> epoch fire time
         self._accepted: set[str] = set()
+        self._waitlisted: set[str] = set()
         self._events_cache: list[dict] = []
         self._client: spond.Spond | None = None
         self._client_key: tuple[str, str] | None = None
@@ -283,6 +297,10 @@ class Scheduler:
     def accepted(self) -> set[str]:
         return self._accepted
 
+    @property
+    def waitlisted(self) -> set[str]:
+        return self._waitlisted
+
     async def _run(self) -> None:
         while True:
             try:
@@ -324,14 +342,26 @@ class Scheduler:
 
         try:
             s = await self.get_client(cfg["username"], cfg["password"])
-            all_events: list[dict] = []
-            seen_ids: set[str] = set()
             sources = group_ids if group_ids else [None]
-            for gid in sources:
-                evs = await s.get_events(
+
+            async def _fetch_group(gid: str | None) -> list[dict]:
+                return await s.get_events(
                     group_id=gid, include_scheduled=True, max_events=200
                 ) or []
-                for e in evs:
+
+            results = await asyncio.gather(
+                *[_fetch_group(gid) for gid in sources],
+                return_exceptions=True,
+            )
+            # Re-raise the first real exception so the existing handler catches it.
+            for r in results:
+                if isinstance(r, Exception):
+                    raise r
+
+            all_events: list[dict] = []
+            seen_ids: set[str] = set()
+            for evs in results:
+                for e in evs:  # type: ignore[union-attr]
                     eid = e.get("id")
                     if eid and eid not in seen_ids:
                         seen_ids.add(eid)
@@ -459,16 +489,21 @@ class Scheduler:
         for attempt in range(1, retries + 2):
             try:
                 result = await s.change_response(event_id, user_id, payload)
-                if isinstance(result, dict) and "error" not in result:
-                    log.info(
-                        "%s event %s on attempt %d",
-                        response_key, event_id, attempt,
-                    )
-                    self._accepted.add(event_id)
+                # Error responses contain "errorCode" (e.g. {"errorCode": 404, ...})
+                if isinstance(result, dict) and "errorCode" not in result:
+                    waitlisted = user_id in result.get("waitinglistIds", [])
+                    if waitlisted:
+                        log.info("waitlisted for event %s on attempt %d", event_id, attempt)
+                        self._waitlisted.add(event_id)
+                        self._accepted.discard(event_id)
+                    else:
+                        log.info("%s event %s on attempt %d", response_key, event_id, attempt)
+                        self._accepted.add(event_id)
+                        self._waitlisted.discard(event_id)
                     append_history({
                         "event_id": event_id, "heading": heading,
                         "response": response_key, "attempt": attempt,
-                        "ok": True,
+                        "ok": True, "waitlisted": waitlisted,
                     })
                     return
                 log.warning(
@@ -611,6 +646,7 @@ async def api_events() -> dict[str, Any]:
             "inviteTime": e.get("inviteTime") or e.get("invitedTimestamp"),
             "selected": e["id"] in selected,
             "accepted": e["id"] in scheduler.accepted,
+            "waitlisted": e["id"] in scheduler.waitlisted,
             "hasOverride": e["id"] in event_settings,
         })
     return {
@@ -703,8 +739,8 @@ async def api_clear_event_settings(event_id: str) -> dict[str, str]:
 
 
 @app.get("/api/history")
-async def api_history(limit: int = 100) -> dict[str, Any]:
-    return {"entries": read_history(limit=limit)}
+async def api_history(limit: int = 100, event_id: str | None = None) -> dict[str, Any]:
+    return {"entries": read_history(limit=limit, event_id=event_id)}
 
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}

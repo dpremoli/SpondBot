@@ -87,6 +87,26 @@ let selectedSet = new Set();
 let groupByMode = "heading";
 let showPast = false;
 
+// Keyed by groupKey string → { countEl, selectAllEl, selectableSessions }
+// Populated by renderGroup(); used for cheap in-place header updates.
+const _groupHeaderRefs = new Map();
+
+function patchGroupHeader(key) {
+  const ref = _groupHeaderRefs.get(key);
+  if (!ref) return;
+  const { countEl, selectAllEl, selectableSessions } = ref;
+  const selectedCount = selectableSessions.filter((s) => s.selected).length;
+  const total = selectableSessions.length;
+  const acceptedCount = ref.allSessions.filter((s) => s.accepted && !s.waitlisted).length;
+  const waitlistedCount = ref.allSessions.filter((s) => s.waitlisted).length;
+  countEl.textContent =
+    `${selectedCount}/${total} selected` +
+    (acceptedCount ? ` · ${acceptedCount} accepted` : "") +
+    (waitlistedCount ? ` · ${waitlistedCount} waitlisted` : "");
+  selectAllEl.checked = total > 0 && selectedCount === total;
+  selectAllEl.indeterminate = selectedCount > 0 && selectedCount < total;
+}
+
 async function loadConfig() {
   const cfg = await api("/api/config");
   $("#username").value = cfg.username || "";
@@ -174,6 +194,7 @@ async function manualRefresh() {
 function renderGroups() {
   const container = $("#event-groups");
   container.innerHTML = "";
+  _groupHeaderRefs.clear();
   let events = cachedEvents;
   if (!showPast) events = events.filter((e) => !isPast(e));
 
@@ -219,7 +240,8 @@ function renderGroup(g) {
   const selectableSessions = g.sessions.filter((s) => !isPast(s));
   const selectedCount = selectableSessions.filter((s) => s.selected).length;
   const total = selectableSessions.length;
-  const acceptedCount = g.sessions.filter((s) => s.accepted).length;
+  const acceptedCount = g.sessions.filter((s) => s.accepted && !s.waitlisted).length;
+  const waitlistedCount = g.sessions.filter((s) => s.waitlisted).length;
 
   const header = document.createElement("div");
   header.className = "group-header";
@@ -229,7 +251,7 @@ function renderGroup(g) {
     <span class="group-meta">${escapeHtml(g.groupName)}</span>
     <span class="group-count">${selectedCount}/${total} selected${
     acceptedCount ? ` · ${acceptedCount} accepted` : ""
-  }</span>
+  }${waitlistedCount ? ` · ${waitlistedCount} waitlisted` : ""}</span>
     <label class="select-all" title="Select all future sessions">
       <input type="checkbox" ${total > 0 && selectedCount === total ? "checked" : ""} ${
     total === 0 ? "disabled" : ""
@@ -239,6 +261,16 @@ function renderGroup(g) {
   `;
   const twisty = header.querySelector(".twisty");
   const selectAll = header.querySelector(".select-all input");
+
+  if (selectedCount > 0 && selectedCount < total) selectAll.indeterminate = true;
+
+  // Store refs so patchGroupHeader() can update counts without re-rendering.
+  _groupHeaderRefs.set(g.key, {
+    countEl: header.querySelector(".group-count"),
+    selectAllEl: selectAll,
+    selectableSessions,
+    allSessions: g.sessions,
+  });
 
   const body = document.createElement("div");
   body.className = "group-body";
@@ -260,10 +292,8 @@ function renderGroup(g) {
     <tbody></tbody>
   `;
   const tbody = tbl.querySelector("tbody");
-  for (const s of g.sessions) tbody.appendChild(renderSession(s));
+  for (const s of g.sessions) tbody.appendChild(renderSession(s, g.key));
   body.appendChild(tbl);
-
-  if (selectedCount > 0 && selectedCount < total) selectAll.indeterminate = true;
 
   twisty.addEventListener("click", () => {
     const open = body.style.display !== "none";
@@ -279,18 +309,19 @@ function renderGroup(g) {
       if (on) selectedSet.add(s.id);
       else selectedSet.delete(s.id);
     }
-    renderGroups();
+    patchGroupHeader(g.key);
   });
 
   wrap.append(header, body);
   return wrap;
 }
 
-function renderSession(s) {
+function renderSession(s, groupKey) {
   const tr = document.createElement("tr");
   const past = isPast(s);
   if (past) tr.classList.add("past");
-  if (s.accepted) tr.classList.add("accepted");
+  if (s.waitlisted) tr.classList.add("waitlisted");
+  else if (s.accepted) tr.classList.add("accepted");
   else if (isAvailable(s)) tr.classList.add("available");
 
   const cb = document.createElement("input");
@@ -301,7 +332,7 @@ function renderSession(s) {
     s.selected = cb.checked;
     if (cb.checked) selectedSet.add(s.id);
     else selectedSet.delete(s.id);
-    renderGroups();
+    patchGroupHeader(groupKey);
   });
   const tdCb = document.createElement("td");
   tdCb.appendChild(cb);
@@ -323,6 +354,8 @@ function renderSession(s) {
   const tdStatus = document.createElement("td");
   tdStatus.textContent = past
     ? "past"
+    : s.waitlisted
+    ? "waitlisted"
     : s.accepted
     ? "accepted"
     : isAvailable(s)
