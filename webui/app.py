@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from spond import AuthenticationError, spond
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -34,6 +34,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = DATA_DIR / "config.json"
 HISTORY_PATH = DATA_DIR / "history.jsonl"
 KEY_PATH = DATA_DIR / ".key"
+ACCEPTED_PATH = DATA_DIR / "accepted_ids.json"
+FAILED_PATH = DATA_DIR / "failed_ids.json"
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -179,6 +181,22 @@ def read_history(limit: int = 100, event_id: str | None = None) -> list[dict[str
     return list(reversed(out))
 
 
+# ---------- persistent sets ----------
+
+def _load_id_set(path: Path) -> set[str]:
+    try:
+        return set(json.loads(path.read_text()))
+    except Exception:
+        return set()
+
+
+def _save_id_set(path: Path, ids: set[str]) -> None:
+    try:
+        path.write_text(json.dumps(sorted(ids)))
+    except Exception as exc:
+        log.warning("could not save %s: %s", path.name, exc)
+
+
 # ---------- scheduler state ----------
 
 class Scheduler:
@@ -188,9 +206,9 @@ class Scheduler:
         self._task: asyncio.Task | None = None
         self._scheduled: dict[str, asyncio.Task] = {}
         self._scheduled_fire_ts: dict[str, float] = {}  # event_id -> epoch fire time
-        self._accepted: set[str] = set()
+        self._accepted: set[str] = _load_id_set(ACCEPTED_PATH)
         self._waitlisted: set[str] = set()
-        self._permanently_failed: set[str] = set()
+        self._permanently_failed: set[str] = _load_id_set(FAILED_PATH)
         self._events_cache: list[dict] = []
         self._client: spond.Spond | None = None
         self._client_key: tuple[str, str] | None = None
@@ -444,6 +462,8 @@ class Scheduler:
                     e.get("startTimestamp"),
                 )
             )
+        # Persist after loop in case Spond sync added new accepted ids.
+        _save_id_set(ACCEPTED_PATH, self._accepted)
 
     async def _accept_later(
         self,
@@ -470,6 +490,7 @@ class Scheduler:
                 "[dry-run] would %s event %s (%s)", response_key, event_id, heading,
             )
             self._accepted.add(event_id)
+            _save_id_set(ACCEPTED_PATH, self._accepted)
             append_history({**_base, "response": response_key, "attempt": 0,
                             "ok": True, "dry_run": True})
             return
@@ -511,6 +532,7 @@ class Scheduler:
                         log.info("%s event %s on attempt %d", response_key, event_id, attempt)
                         self._accepted.add(event_id)
                         self._waitlisted.discard(event_id)
+                    _save_id_set(ACCEPTED_PATH, self._accepted)
                     append_history({**_base, "response": response_key, "attempt": attempt,
                                     "ok": True, "waitlisted": waitlisted})
                     return
@@ -522,6 +544,7 @@ class Scheduler:
                         event_id,
                     )
                     self._permanently_failed.add(event_id)
+                    _save_id_set(FAILED_PATH, self._permanently_failed)
                     append_history({**_base, "response": response_key, "ok": False,
                                     "error": "not invited to this occurrence"})
                     return
@@ -539,6 +562,7 @@ class Scheduler:
             "gave up on event %s after %d attempts", event_id, retries + 1,
         )
         self._permanently_failed.add(event_id)
+        _save_id_set(FAILED_PATH, self._permanently_failed)
         append_history({**_base, "response": response_key, "ok": False,
                         "error": f"gave up after {retries + 1} attempts"})
 
