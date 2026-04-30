@@ -633,9 +633,18 @@ async def api_events() -> dict[str, Any]:
     cfg = load_config()
     selected = set(cfg.get("selected_event_ids") or [])
     event_settings = cfg.get("event_settings") or {}
+    user_id = scheduler._cached_user_id
     events = []
     for e in scheduler.events:
         gid = (e.get("group") or {}).get("id") or e.get("groupId")
+        responses = e.get("responses") or {}
+        # Derive status from Spond response data (accurate across restarts) and
+        # fall back to in-memory tracking for events accepted in this session
+        # before the next poll refreshes the cache.
+        in_accepted = user_id and user_id in (responses.get("acceptedIds") or [])
+        in_waitlist = user_id and user_id in (responses.get("waitinglistIds") or [])
+        accepted = bool(in_accepted) or e["id"] in scheduler.accepted
+        waitlisted = bool(in_waitlist) or e["id"] in scheduler.waitlisted
         events.append({
             "id": e["id"],
             "heading": e.get("heading"),
@@ -645,8 +654,8 @@ async def api_events() -> dict[str, Any]:
             "endTimestamp": e.get("endTimestamp"),
             "inviteTime": e.get("inviteTime") or e.get("invitedTimestamp"),
             "selected": e["id"] in selected,
-            "accepted": e["id"] in scheduler.accepted,
-            "waitlisted": e["id"] in scheduler.waitlisted,
+            "accepted": accepted and not waitlisted,
+            "waitlisted": waitlisted,
             "hasOverride": e["id"] in event_settings,
         })
     return {
