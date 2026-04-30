@@ -243,11 +243,14 @@ function renderGroup(g) {
   const acceptedCount = g.sessions.filter((s) => s.accepted && !s.waitlisted).length;
   const waitlistedCount = g.sessions.filter((s) => s.waitlisted).length;
 
+  const uniqueEventIds = [...new Set(g.sessions.map((s) => s.id).filter(Boolean))];
+  const idTooltip = uniqueEventIds.length ? `Event ID${uniqueEventIds.length > 1 ? "s" : ""}:\n${uniqueEventIds.join("\n")}` : "";
+
   const header = document.createElement("div");
   header.className = "group-header";
   header.innerHTML = `
     <button class="twisty" aria-expanded="false">▸</button>
-    <span class="group-title">${escapeHtml(g.label)}</span>
+    <span class="group-title" title="${escapeHtml(idTooltip)}">${escapeHtml(g.label)}</span>
     <span class="group-meta">${escapeHtml(g.groupName)}</span>
     <span class="group-count">${selectedCount}/${total} selected${
     acceptedCount ? ` · ${acceptedCount} accepted` : ""

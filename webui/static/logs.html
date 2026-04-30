@@ -18,44 +18,33 @@
   </nav>
 </header>
 <main>
-  <h1>Logs</h1>
-  <p class="sub">Every auto-response the bot has attempted.</p>
-
-  <section class="card">
+  <div class="page-header">
+    <div>
+      <h1>Logs</h1>
+      <p class="sub">Every auto-response the bot has attempted.</p>
+    </div>
     <div class="toolbar">
       <button id="reload">Reload</button>
       <span id="logs-status" class="status"></span>
     </div>
-    <table id="history">
-      <thead>
-        <tr>
-          <th>Time</th><th>Event</th><th>Response</th><th>Attempt</th><th>Result</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </section>
+  </div>
+
+  <div id="timeline" class="timeline"></div>
 </main>
 
 <!-- Per-event drill-down modal -->
 <div id="event-modal" class="modal-backdrop" hidden>
   <div class="modal">
     <div class="modal-header">
-      <h2 id="modal-title">Event history</h2>
+      <div>
+        <h2 id="modal-title">Event history</h2>
+        <p id="modal-event-id" class="muted modal-event-id"></p>
+      </div>
       <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
     </div>
-    <p id="modal-event-id" class="muted" style="font-size:.8rem;margin:0 0 .75rem;"></p>
-    <table id="modal-table">
-      <thead>
-        <tr>
-          <th>Time</th><th>Attempt</th><th>Response</th><th>Result</th><th>Detail</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div id="modal-timeline" class="timeline timeline--modal"></div>
   </div>
 </div>
 <script src="/static/logs.js"></script>
 </body>
 </html>
-

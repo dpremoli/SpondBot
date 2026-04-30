@@ -21,14 +21,47 @@ function fmt(ts) {
   return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
 }
 
+function fmtTime(ts) {
+  if (!ts) return "—";
+  const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
+  if (isNaN(d.getTime())) return String(ts);
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtDate(ts) {
+  if (!ts) return "—";
+  const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
+  if (isNaN(d.getTime())) return String(ts);
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function dayKey(ts) {
+  if (!ts) return "unknown";
+  const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
+  return isNaN(d.getTime()) ? "unknown" : d.toISOString().slice(0, 10);
+}
+
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
 }
 
-function rowClass(e) {
+function entryClass(e) {
   if (!e.ok) return "failed";
+  if (e.waitlisted) return "waitlisted";
+  return "accepted";
+}
+
+function entryIcon(e) {
+  if (!e.ok) return "✕";
+  if (e.waitlisted) return "~";
+  return "✓";
+}
+
+function resultText(e) {
+  if (!e.ok) return e.error || "failed";
+  if (e.dry_run) return "dry-run";
   if (e.waitlisted) return "waitlisted";
   return "accepted";
 }
@@ -39,41 +72,108 @@ function eventLabel(e) {
   const d = new Date(e.startTimestamp);
   if (isNaN(d.getTime())) return escapeHtml(name);
   const dateStr = d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
-  return `${escapeHtml(name)} <span class="muted" style="font-size:.8em">${dateStr}</span>`;
+  return `${escapeHtml(name)} <span class="tl-event-date">${dateStr}</span>`;
 }
 
-function resultText(e) {
-  if (!e.ok) return e.error || "failed";
-  if (e.dry_run) return "ok (dry-run)";
-  if (e.waitlisted) return "waitlisted";
-  return "accepted";
+// Build a timeline node element for a single log entry
+function makeNode(e, clickable) {
+  const cls = entryClass(e);
+  const node = document.createElement("div");
+  node.className = `tl-node ${cls}`;
+
+  const dot = document.createElement("div");
+  dot.className = "tl-dot";
+  dot.textContent = entryIcon(e);
+
+  const card = document.createElement("div");
+  card.className = "tl-card";
+
+  const header = document.createElement("div");
+  header.className = "tl-card-header";
+
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "tl-card-name";
+  nameSpan.innerHTML = eventLabel(e);
+
+  const meta = document.createElement("span");
+  meta.className = "tl-card-meta";
+
+  const badges = [];
+  if (e.response) badges.push(`<span class="tl-badge">${escapeHtml(e.response)}</span>`);
+  const res = resultText(e);
+  badges.push(`<span class="tl-badge tl-badge--${cls}">${escapeHtml(res)}</span>`);
+  if (e.attempt) badges.push(`<span class="tl-badge tl-badge--muted">attempt ${e.attempt}</span>`);
+  meta.innerHTML = badges.join("");
+
+  const time = document.createElement("span");
+  time.className = "tl-card-time";
+  time.textContent = fmtTime(e.ts);
+  time.title = fmt(e.ts);
+
+  header.append(nameSpan, meta, time);
+  card.appendChild(header);
+
+  if (e.error) {
+    const err = document.createElement("div");
+    err.className = "tl-card-detail";
+    err.textContent = e.error;
+    card.appendChild(err);
+  }
+
+  node.append(dot, card);
+
+  if (clickable) {
+    card.classList.add("clickable");
+    card.title = "Click to see full attempt log for this event";
+    card.addEventListener("click", () => openEventModal(e.event_id, e.heading));
+  }
+
+  return node;
+}
+
+// Render a full timeline grouped by day into a container element
+function renderTimeline(container, entries, clickable = true) {
+  container.innerHTML = "";
+
+  if (entries.length === 0) {
+    container.innerHTML = `<p class="muted tl-empty">No activity yet.</p>`;
+    return;
+  }
+
+  // Group by day
+  const groups = new Map();
+  for (const e of entries) {
+    const key = dayKey(e.ts);
+    if (!groups.has(key)) groups.set(key, { label: fmtDate(e.ts), entries: [] });
+    groups.get(key).entries.push(e);
+  }
+
+  for (const [, group] of groups) {
+    const section = document.createElement("div");
+    section.className = "tl-section";
+
+    const dayLabel = document.createElement("div");
+    dayLabel.className = "tl-day-label";
+    dayLabel.textContent = group.label;
+    section.appendChild(dayLabel);
+
+    const track = document.createElement("div");
+    track.className = "tl-track";
+
+    for (const e of group.entries) {
+      track.appendChild(makeNode(e, clickable));
+    }
+
+    section.appendChild(track);
+    container.appendChild(section);
+  }
 }
 
 async function load() {
   const status = $("#logs-status");
   try {
     const { entries } = await api("/api/history?limit=500");
-    const tbody = document.querySelector("#history tbody");
-    tbody.innerHTML = "";
-    if (entries.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="muted">No activity yet.</td></tr>`;
-      status.textContent = "";
-      return;
-    }
-    for (const e of entries) {
-      const tr = document.createElement("tr");
-      tr.className = rowClass(e) + " clickable";
-      tr.title = "Click to see full attempt log for this event";
-      tr.innerHTML = `
-        <td>${escapeHtml(fmt(e.ts))}</td>
-        <td>${eventLabel(e)}</td>
-        <td>${escapeHtml(e.response || "—")}</td>
-        <td>${e.attempt ?? "—"}</td>
-        <td class="result">${escapeHtml(resultText(e))}</td>
-      `;
-      tr.addEventListener("click", () => openEventModal(e.event_id, e.heading));
-      tbody.appendChild(tr);
-    }
+    renderTimeline($("#timeline"), entries, true);
     status.textContent = `${entries.length} entries`;
     status.className = "status ok";
   } catch (e) {
@@ -86,40 +186,19 @@ async function openEventModal(eventId, heading) {
   const modal = $("#event-modal");
   const title = $("#modal-title");
   const idEl = $("#modal-event-id");
-  const tbody = document.querySelector("#modal-table tbody");
+  const modalTl = $("#modal-timeline");
 
   title.textContent = heading || eventId;
-  idEl.textContent = `event id: ${eventId}`;
-  tbody.innerHTML = `<tr><td colspan="5" class="muted">Loading…</td></tr>`;
+  idEl.textContent = `ID: ${eventId}`;
+  modalTl.innerHTML = `<p class="muted tl-empty">Loading…</p>`;
   modal.hidden = false;
 
   try {
     const { entries } = await api(`/api/history?event_id=${encodeURIComponent(eventId)}`);
-    tbody.innerHTML = "";
-    if (entries.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="muted">No history for this event.</td></tr>`;
-      return;
-    }
-    // Show oldest first in the modal so the timeline reads top-to-bottom
-    for (const e of [...entries].reverse()) {
-      const tr = document.createElement("tr");
-      tr.className = rowClass(e);
-      const detail = e.error
-        ? escapeHtml(e.error)
-        : e.dry_run
-        ? '<span class="muted">dry-run</span>'
-        : "";
-      tr.innerHTML = `
-        <td>${escapeHtml(fmt(e.ts))}</td>
-        <td>${e.attempt ?? "—"}</td>
-        <td>${escapeHtml(e.response || "—")}</td>
-        <td class="result">${escapeHtml(resultText(e))}</td>
-        <td>${detail}</td>
-      `;
-      tbody.appendChild(tr);
-    }
+    // Oldest first so timeline reads top-to-bottom
+    renderTimeline(modalTl, [...entries].reverse(), false);
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="err">${escapeHtml(err.message)}</td></tr>`;
+    modalTl.innerHTML = `<p class="tl-empty err">${escapeHtml(err.message)}</p>`;
   }
 }
 
