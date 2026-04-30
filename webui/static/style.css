@@ -359,11 +359,11 @@ tr.selected-row > td:first-child {
 }
 .lifecycle {
   display: flex; align-items: flex-start;
-  gap: 0; flex-wrap: nowrap; overflow-x: auto;
+  gap: 0; flex-wrap: nowrap;
 }
 .lifecycle-step {
   display: flex; flex-direction: column; align-items: center;
-  gap: .3rem; min-width: 90px; flex: 1;
+  gap: .3rem; flex: 1; min-width: 0;
   opacity: .4;
 }
 .lifecycle-step--active { opacity: 1; }
@@ -377,18 +377,19 @@ tr.selected-row > td:first-child {
 .lifecycle-step--active .lifecycle-step-num {
   border-color: var(--accent); color: var(--accent);
 }
-.lifecycle-step-body { text-align: center; }
+.lifecycle-step-body { text-align: center; width: 100%; }
 .lifecycle-step-label {
-  font-size: .67rem; text-transform: uppercase; letter-spacing: .07em;
+  font-size: .65rem; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted); font-weight: 600; white-space: nowrap;
 }
 .lifecycle-step-value {
-  font-size: .78rem; color: var(--fg); margin-top: .1rem;
-  word-break: break-word; white-space: nowrap;
+  font-size: .75rem; color: var(--fg); margin-top: .1rem;
+  word-break: break-word; white-space: normal;
+  overflow-wrap: anywhere;
 }
 .lifecycle-connector {
-  flex: 1; height: 2px; background: var(--border);
-  margin-top: .8rem; min-width: 12px; flex-shrink: 1;
+  flex: 0 0 12px; height: 2px; background: var(--border);
+  margin-top: .8rem;
 }
 
 /* section divider label inside modal */

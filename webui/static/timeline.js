@@ -91,7 +91,8 @@ function tlMakeNode(e, { label = null, clickHandler = null } = {}) {
   header.append(nameSpan, meta, time);
   card.appendChild(header);
 
-  if (e.error) {
+  // Only show detail when error text adds something beyond the result badge
+  if (e.error && e.error !== tlResultText(e)) {
     const errEl = document.createElement("div");
     errEl.className = "tl-card-detail";
     errEl.textContent = e.error;
