@@ -74,7 +74,6 @@ function tlMakeNode(e, { label = null, clickHandler = null } = {}) {
 
   const nameSpan = document.createElement("span");
   nameSpan.className = "tl-card-name";
-  // Use provided label (e.g. "First attempt") or event name for the main log
   nameSpan.innerHTML = label ? tlEscape(label) : tlEventLabel(e);
 
   const meta = document.createElement("span");
@@ -146,7 +145,7 @@ function tlRenderByDay(container, entries, clickHandler = null) {
   }
 }
 
-// Per-event modal timeline: narrative labels, no event name repetition
+// Per-event modal timeline: narrative labels, no event name repetition, grouped by day
 function tlRenderEventHistory(container, entries) {
   container.innerHTML = "";
   if (entries.length === 0) {
@@ -160,7 +159,6 @@ function tlRenderEventHistory(container, entries) {
     return ta - tb;
   });
 
-  // Group by day so multi-day retry sequences are clear
   const groups = new Map();
   for (const e of sorted) {
     const key = tlDayKey(e.ts);
@@ -208,26 +206,67 @@ function tlRenderEventHistory(container, entries) {
   }
 }
 
-// Render the event metadata summary header inside the modal
-function tlRenderEventMeta(container, meta) {
-  // meta: { heading, startTimestamp, endTimestamp, inviteTime, accepted, waitlisted, failed, id }
-  const statusText = meta.accepted && !meta.waitlisted ? "accepted"
-    : meta.waitlisted ? "waitlisted"
-    : meta.failed ? "failed"
-    : "pending";
-  const statusCls = meta.accepted && !meta.waitlisted ? "accepted"
-    : meta.waitlisted ? "waitlisted"
-    : meta.failed ? "failed"
-    : "";
+// Render the 4-step lifecycle header inside the modal
+// meta: { inviteTime, armed_ts, startTimestamp, endTimestamp, accepted, waitlisted, failed }
+// historyEntries: sorted array of history entries for this event (to derive first attempt + outcome)
+function tlRenderLifecycle(container, meta, historyEntries) {
+  const sorted = historyEntries
+    ? [...historyEntries].sort((a, b) => {
+        const ta = new Date(typeof a.ts === "number" ? a.ts * 1000 : a.ts).getTime();
+        const tb = new Date(typeof b.ts === "number" ? b.ts * 1000 : b.ts).getTime();
+        return ta - tb;
+      })
+    : [];
 
-  const start = meta.startTimestamp ? tlFmt(meta.startTimestamp) : null;
-  const invite = meta.inviteTime ? tlFmt(meta.inviteTime) : null;
+  const firstEntry = sorted[0] || null;
+  const lastEntry = sorted[sorted.length - 1] || null;
+
+  const outcomeText = !lastEntry ? "pending"
+    : !lastEntry.ok ? (lastEntry.error || "failed")
+    : lastEntry.waitlisted ? "waitlisted"
+    : "accepted";
+  const outcomeCls = !lastEntry ? ""
+    : !lastEntry.ok ? "failed"
+    : lastEntry.waitlisted ? "waitlisted"
+    : "accepted";
+
+  const steps = [
+    {
+      label: "Invite opens",
+      value: meta.inviteTime ? tlFmt(meta.inviteTime) : "—",
+      active: !!meta.inviteTime,
+    },
+    {
+      label: "Bot armed",
+      value: meta.armed_ts ? tlFmt(meta.armed_ts) : "—",
+      active: !!meta.armed_ts,
+      note: meta.armed_ts ? "scheduled to fire" : null,
+    },
+    {
+      label: "First attempt",
+      value: firstEntry ? tlFmt(firstEntry.ts) : "—",
+      active: !!firstEntry,
+    },
+    {
+      label: "Outcome",
+      value: `<span class="tl-badge tl-badge--${tlEscape(outcomeCls)}">${tlEscape(outcomeText)}</span>`,
+      isHtml: true,
+      active: !!lastEntry,
+    },
+  ];
 
   container.innerHTML = `
-    <div class="event-meta-grid">
-      ${start ? `<div class="event-meta-item"><span class="event-meta-label">Event starts</span><span class="event-meta-value">${tlEscape(start)}</span></div>` : ""}
-      ${invite ? `<div class="event-meta-item"><span class="event-meta-label">Invite opened</span><span class="event-meta-value">${tlEscape(invite)}</span></div>` : ""}
-      <div class="event-meta-item"><span class="event-meta-label">Bot status</span><span class="event-meta-value tl-badge tl-badge--${tlEscape(statusCls)}">${tlEscape(statusText)}</span></div>
+    <div class="lifecycle">
+      ${steps.map((s, i) => `
+        <div class="lifecycle-step${s.active ? " lifecycle-step--active" : ""}">
+          <div class="lifecycle-step-num">${i + 1}</div>
+          <div class="lifecycle-step-body">
+            <div class="lifecycle-step-label">${tlEscape(s.label)}</div>
+            <div class="lifecycle-step-value">${s.isHtml ? s.value : tlEscape(s.value)}</div>
+          </div>
+        </div>
+        ${i < steps.length - 1 ? '<div class="lifecycle-connector"></div>' : ""}
+      `).join("")}
     </div>
   `;
 }
@@ -237,18 +276,22 @@ async function tlOpenEventModal(eventId, heading, meta = {}) {
   const modal = document.querySelector("#event-modal");
   const title = document.querySelector("#modal-title");
   const idEl = document.querySelector("#modal-event-id");
-  const metaContainer = document.querySelector("#modal-event-meta");
+  const lifecycleContainer = document.querySelector("#modal-lifecycle");
   const modalTl = document.querySelector("#modal-timeline");
 
   title.textContent = heading || eventId;
   idEl.textContent = `ID: ${eventId}`;
-  if (metaContainer) tlRenderEventMeta(metaContainer, { ...meta, id: eventId });
+
+  // Render lifecycle with placeholders while loading
+  if (lifecycleContainer) tlRenderLifecycle(lifecycleContainer, meta, []);
   modalTl.innerHTML = `<p class="muted tl-empty">Loading…</p>`;
   modal.hidden = false;
 
   try {
     const res = await fetch(`/api/history?event_id=${encodeURIComponent(eventId)}`);
     const { entries } = await res.json();
+    // Re-render lifecycle now that we have history entries
+    if (lifecycleContainer) tlRenderLifecycle(lifecycleContainer, meta, entries);
     tlRenderEventHistory(modalTl, entries);
   } catch (err) {
     modalTl.innerHTML = `<p class="tl-empty" style="color:var(--err)">${tlEscape(String(err.message))}</p>`;

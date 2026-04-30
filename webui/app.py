@@ -699,6 +699,7 @@ async def api_events() -> dict[str, Any]:
             "waitlisted": waitlisted,
             "failed": e["id"] in scheduler._permanently_failed,
             "hasOverride": e["id"] in event_settings,
+            "armed_ts": scheduler._scheduled_fire_ts.get(e["id"]),
         })
     return {
         "events": events,
@@ -792,6 +793,33 @@ async def api_clear_event_settings(event_id: str) -> dict[str, str]:
 @app.get("/api/history")
 async def api_history(limit: int = 100, event_id: str | None = None) -> dict[str, Any]:
     return {"entries": read_history(limit=limit, event_id=event_id)}
+
+
+def clear_history(event_id: str | None = None) -> int:
+    """Clear all history or only entries matching event_id. Returns count removed."""
+    if not HISTORY_PATH.exists():
+        return 0
+    lines = HISTORY_PATH.read_text().splitlines()
+    kept, removed = [], 0
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event_id is not None and entry.get("event_id") != event_id:
+            kept.append(line)
+        else:
+            removed += 1
+    if event_id is not None:
+        HISTORY_PATH.write_text("\n".join(kept) + ("\n" if kept else ""))
+    else:
+        HISTORY_PATH.write_text("")
+    return removed
+
+
+@app.delete("/api/history")
+async def api_clear_history(event_id: str | None = None) -> dict[str, Any]:
+    return {"cleared": clear_history(event_id=event_id)}
 
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}

@@ -18,6 +18,7 @@ from webui.app import (  # noqa: E402
     VERSION,
     _available_epoch,
     append_history,
+    clear_history,
     decrypt_password,
     encrypt_password,
     load_config,
@@ -170,3 +171,39 @@ def test_read_history_event_id_filter(tmp_path):
 def test_read_history_missing_file(tmp_path):
     with patch("webui.app.HISTORY_PATH", tmp_path / "nonexistent.jsonl"):
         assert read_history() == []
+
+
+# ---------- clear_history ----------
+
+def test_clear_history_all(tmp_path):
+    with patch("webui.app.HISTORY_PATH", tmp_path / "history.jsonl"):
+        for i in range(5):
+            append_history({"event_id": f"ev{i}", "ok": True})
+        removed = clear_history()
+        assert removed == 5
+        assert read_history() == []
+
+
+def test_clear_history_by_event_id(tmp_path):
+    with patch("webui.app.HISTORY_PATH", tmp_path / "history.jsonl"):
+        append_history({"event_id": "target", "ok": True})
+        append_history({"event_id": "other", "ok": True})
+        append_history({"event_id": "target", "ok": False, "error": "retry"})
+        removed = clear_history(event_id="target")
+        assert removed == 2
+        remaining = read_history(limit=10)
+        assert len(remaining) == 1
+        assert remaining[0]["event_id"] == "other"
+
+
+def test_clear_history_missing_file(tmp_path):
+    with patch("webui.app.HISTORY_PATH", tmp_path / "nonexistent.jsonl"):
+        assert clear_history() == 0
+
+
+def test_clear_history_nonexistent_event_id(tmp_path):
+    with patch("webui.app.HISTORY_PATH", tmp_path / "history.jsonl"):
+        append_history({"event_id": "ev1", "ok": True})
+        removed = clear_history(event_id="no-such-event")
+        assert removed == 0
+        assert len(read_history()) == 1

@@ -25,7 +25,18 @@
     </div>
     <div class="toolbar">
       <button id="reload">Reload</button>
+      <button id="clear-all" class="ghost">Clear all</button>
       <span id="logs-status" class="status"></span>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <input type="search" id="filter-text" placeholder="Search by event name…" />
+    <div class="filter-pills" role="group" aria-label="Filter by status">
+      <button class="pill pill--active" data-status="all">All</button>
+      <button class="pill" data-status="accepted">Accepted</button>
+      <button class="pill" data-status="waitlisted">Waitlisted</button>
+      <button class="pill" data-status="failed">Failed</button>
     </div>
   </div>
 
@@ -40,9 +51,12 @@
         <h2 id="modal-title">Event history</h2>
         <p id="modal-event-id" class="muted modal-event-id"></p>
       </div>
-      <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <button id="modal-clear-event" class="ghost small">Clear this event</button>
+        <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+      </div>
     </div>
-    <div id="modal-event-meta" class="modal-event-meta"></div>
+    <div id="modal-lifecycle" class="modal-lifecycle"></div>
     <div class="modal-section-label">Bot activity</div>
     <div id="modal-timeline" class="timeline timeline--modal"></div>
   </div>

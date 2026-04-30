@@ -342,7 +342,12 @@ function renderSession(s, groupKey) {
     else selectedSet.delete(s.id);
     patchGroupHeader(groupKey);
   });
+  if (s.selected) tr.classList.add("selected-row");
   cb.addEventListener("click", (ev) => ev.stopPropagation());
+  cb.addEventListener("change", () => {
+    if (cb.checked) tr.classList.add("selected-row");
+    else tr.classList.remove("selected-row");
+  });
   const tdCb = document.createElement("td");
   tdCb.appendChild(cb);
 
@@ -361,17 +366,18 @@ function renderSession(s, groupKey) {
   tdEnd.textContent = fmt(s.endTimestamp);
 
   const tdStatus = document.createElement("td");
-  tdStatus.textContent = past
-    ? "past"
+  const [statusLabel, statusCls] = past
+    ? ["past", "muted"]
     : s.waitlisted
-    ? "waitlisted"
+    ? ["waitlisted", "waitlisted"]
     : s.accepted
-    ? "accepted"
+    ? ["accepted", "accepted"]
     : s.failed
-    ? "failed"
+    ? ["failed", "failed"]
     : isAvailable(s)
-    ? "open"
-    : "scheduled";
+    ? ["open", "open"]
+    : ["scheduled", "scheduled"];
+  tdStatus.innerHTML = `<span class="status-pill status-pill--${statusCls}">${statusLabel}</span>`;
 
   const tdOv = document.createElement("td");
   if (!past) {
@@ -387,6 +393,7 @@ function renderSession(s, groupKey) {
     startTimestamp: s.startTimestamp,
     endTimestamp: s.endTimestamp,
     inviteTime: s.inviteTime,
+    armed_ts: s.armed_ts,
     accepted: s.accepted && !s.waitlisted,
     waitlisted: s.waitlisted,
     failed: s.failed,
