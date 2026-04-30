@@ -673,7 +673,7 @@ async def api_events() -> dict[str, Any]:
             "selected": e["id"] in selected,
             "accepted": accepted and not waitlisted,
             "waitlisted": waitlisted,
-            "failed": eid in self._permanently_failed,
+            "failed": e["id"] in scheduler._permanently_failed,
             "hasOverride": e["id"] in event_settings,
         })
     return {
