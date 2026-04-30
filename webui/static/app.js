@@ -323,6 +323,8 @@ function renderGroup(g) {
 
 function renderSession(s, groupKey) {
   const tr = document.createElement("tr");
+  tr.classList.add("clickable");
+  tr.title = "Click to see bot activity for this event";
   const past = isPast(s);
   if (past) tr.classList.add("past");
   if (s.waitlisted) tr.classList.add("waitlisted");
@@ -340,6 +342,7 @@ function renderSession(s, groupKey) {
     else selectedSet.delete(s.id);
     patchGroupHeader(groupKey);
   });
+  cb.addEventListener("click", (ev) => ev.stopPropagation());
   const tdCb = document.createElement("td");
   tdCb.appendChild(cb);
 
@@ -373,11 +376,21 @@ function renderSession(s, groupKey) {
   const tdOv = document.createElement("td");
   if (!past) {
     const ovBtn = document.createElement("button");
-    ovBtn.className = "small";
+    ovBtn.className = "small ghost";
     ovBtn.textContent = s.hasOverride ? "Edit override" : "Override";
-    ovBtn.addEventListener("click", () => openOverrideDialog(s));
+    ovBtn.addEventListener("click", (ev) => { ev.stopPropagation(); openOverrideDialog(s); });
     tdOv.appendChild(ovBtn);
   }
+
+  // Row click → event history modal (stopPropagation on checkbox to avoid conflict)
+  tr.addEventListener("click", () => tlOpenEventModal(s.id, s.heading, {
+    startTimestamp: s.startTimestamp,
+    endTimestamp: s.endTimestamp,
+    inviteTime: s.inviteTime,
+    accepted: s.accepted && !s.waitlisted,
+    waitlisted: s.waitlisted,
+    failed: s.failed,
+  }));
 
   if (groupByMode !== "heading") {
     const tdName = document.createElement("td");
@@ -565,6 +578,15 @@ $("#show-past").addEventListener("change", () => {
   }
   renderGroups();
 });
+
+// Event history modal close handlers
+(function () {
+  const modal = document.querySelector("#event-modal");
+  if (!modal) return;
+  document.querySelector("#modal-close").addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.hidden = true; });
+})();
 
 loadConfig()
   .then(() => Promise.all([loadEvents(), loadStatus()]))
