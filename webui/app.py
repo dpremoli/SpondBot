@@ -190,6 +190,7 @@ class Scheduler:
         self._scheduled_fire_ts: dict[str, float] = {}  # event_id -> epoch fire time
         self._accepted: set[str] = set()
         self._waitlisted: set[str] = set()
+        self._permanently_failed: set[str] = set()
         self._events_cache: list[dict] = []
         self._client: spond.Spond | None = None
         self._client_key: tuple[str, str] | None = None
@@ -235,6 +236,7 @@ class Scheduler:
             "logged_in": self._client is not None,
             "poll_interval": self._current_poll_interval(),
             "version": VERSION,
+            "failed_count": len(self._permanently_failed),
         }
 
     def _current_poll_interval(self) -> int:
@@ -420,7 +422,7 @@ class Scheduler:
             if uid and uid in (responses.get("waitinglistIds") or []):
                 self._waitlisted.add(eid)
 
-            if eid in self._accepted or eid in self._waitlisted:
+            if eid in self._accepted or eid in self._waitlisted or eid in self._permanently_failed:
                 continue
             if eid in self._scheduled and not self._scheduled[eid].done():
                 continue
@@ -512,6 +514,17 @@ class Scheduler:
                     append_history({**_base, "response": response_key, "attempt": attempt,
                                     "ok": True, "waitlisted": waitlisted})
                     return
+                # 404 "Recipient is not found" means this user isn't invited to
+                # this specific occurrence — no point retrying.
+                if result.get("errorCode") == 404:
+                    log.warning(
+                        "event %s: not invited (404) — skipping permanently",
+                        event_id,
+                    )
+                    self._permanently_failed.add(event_id)
+                    append_history({**_base, "response": response_key, "ok": False,
+                                    "error": "not invited to this occurrence"})
+                    return
                 log.warning(
                     "attempt %d for %s returned: %s",
                     attempt, event_id, result,
@@ -525,6 +538,7 @@ class Scheduler:
         log.error(
             "gave up on event %s after %d attempts", event_id, retries + 1,
         )
+        self._permanently_failed.add(event_id)
         append_history({**_base, "response": response_key, "ok": False,
                         "error": f"gave up after {retries + 1} attempts"})
 
@@ -659,6 +673,7 @@ async def api_events() -> dict[str, Any]:
             "selected": e["id"] in selected,
             "accepted": accepted and not waitlisted,
             "waitlisted": waitlisted,
+            "failed": eid in self._permanently_failed,
             "hasOverride": e["id"] in event_settings,
         })
     return {

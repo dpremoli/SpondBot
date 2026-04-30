@@ -322,6 +322,7 @@ function renderSession(s, groupKey) {
   if (past) tr.classList.add("past");
   if (s.waitlisted) tr.classList.add("waitlisted");
   else if (s.accepted) tr.classList.add("accepted");
+  else if (s.failed) tr.classList.add("failed");
   else if (isAvailable(s)) tr.classList.add("available");
 
   const cb = document.createElement("input");
@@ -358,6 +359,8 @@ function renderSession(s, groupKey) {
     ? "waitlisted"
     : s.accepted
     ? "accepted"
+    : s.failed
+    ? "failed"
     : isAvailable(s)
     ? "open"
     : "scheduled";
@@ -451,7 +454,8 @@ function renderStatus(s) {
   } else {
     dot.className = "dot ok";
     const last = s.last_tick_ts ? fmtRel(s.last_tick_ts) : "never";
-    text.textContent = `healthy · last check ${last} · ${s.events_cached} events · ${s.scheduled_count} armed`;
+    const failedNote = s.failed_count ? ` · ${s.failed_count} failed` : "";
+    text.textContent = `healthy · last check ${last} · ${s.events_cached} events · ${s.scheduled_count} armed${failedNote}`;
   }
   const next = $("#status-next");
   if (s.next_fire_ts) {
