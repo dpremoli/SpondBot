@@ -13,7 +13,11 @@
 
   // ---- Tab switching ----
   const tabBtns = document.querySelectorAll('.tab-btn');
-  const tabPanels = { users: document.getElementById('tab-users'), activity: document.getElementById('tab-activity'), bots: document.getElementById('tab-bots') };
+  const tabPanels = {
+    users: document.getElementById('tab-users'),
+    activity: document.getElementById('tab-activity'),
+    bots: document.getElementById('tab-bots'),
+  };
 
   tabBtns.forEach(btn => btn.addEventListener('click', () => {
     tabBtns.forEach(b => b.classList.remove('tab-btn--active'));
@@ -31,13 +35,17 @@
 
   // ---- Users ----
   let editingUid = null;
+  let userMap = {}; // uid → username, populated by loadUsers
 
   async function loadUsers() {
     const res = await fetch('/admin/users');
     if (!res.ok) return;
     const users = await res.json();
+    // Build uid → username map for activity filter
+    userMap = {};
+    users.forEach(u => { userMap[u.id] = u.username; });
     renderUsers(users);
-    // populate activity filter
+    // Populate activity filter
     const sel = document.getElementById('activity-user-filter');
     const prev = sel.value;
     sel.innerHTML = '<option value="">All users</option>';
@@ -46,7 +54,7 @@
       opt.value = u.id; opt.textContent = u.username;
       sel.appendChild(opt);
     });
-    sel.value = prev;
+    if (prev) sel.value = prev;
   }
 
   function renderUsers(users) {
@@ -98,12 +106,12 @@
     document.getElementById('user-modal').hidden = false;
   }
 
-  function closeModal() {
+  function closeUserModal() {
     document.getElementById('user-modal').hidden = true;
   }
 
-  document.getElementById('user-modal-close').addEventListener('click', closeModal);
-  document.getElementById('uf-cancel').addEventListener('click', closeModal);
+  document.getElementById('user-modal-close').addEventListener('click', closeUserModal);
+  document.getElementById('uf-cancel').addEventListener('click', closeUserModal);
 
   document.getElementById('user-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -122,7 +130,7 @@
       });
     }
     if (res.ok) {
-      closeModal();
+      closeUserModal();
       loadUsers();
     } else {
       const d = await res.json().catch(() => ({}));
@@ -148,10 +156,9 @@
     const res = await fetch('/admin/activity?limit=200');
     if (!res.ok) return;
     const { entries } = await res.json();
-    const filtered = filterUid ? entries.filter(e => {
-      const users = JSON.parse(document.getElementById('activity-user-filter').dataset.map || '{}');
-      return e.username === (users[filterUid] || filterUid);
-    }) : entries;
+    const filtered = filterUid
+      ? entries.filter(e => e.username === userMap[filterUid])
+      : entries;
     const container = document.getElementById('admin-timeline');
     container.innerHTML = '';
     if (!filtered.length) { container.textContent = 'No activity yet.'; return; }
@@ -171,20 +178,55 @@
     statuses.forEach(s => {
       const card = document.createElement('div');
       card.className = 'card';
-      const dot = s.last_error ? '🔴' : s.logged_in ? '🟢' : '⚪';
       const noSpond = !s.logged_in && !s.last_tick_ts && !s.last_error;
+      const dot = s.last_error ? '🔴' : s.logged_in ? '🟢' : '⚪';
+      const statusText = noSpond
+        ? `<span class="muted">no Spond credentials</span>`
+        : s.last_error
+          ? `<span class="err-text">${esc(s.last_error)}</span>`
+          : `<span style="color:var(--ok)">ok</span>`;
+
+      const lastTick = s.last_tick_ts
+        ? new Date(s.last_tick_ts * 1000).toLocaleTimeString()
+        : '—';
+      const pollInterval = s.poll_interval ? `${s.poll_interval}s` : '—';
+
       card.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
-          <strong>${dot} ${esc(s.username || s.user_id)}</strong>
-          <span class="muted" style="font-size:.78rem">${s.dry_run ? 'DRY RUN' : ''}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.65rem">
+          <strong style="font-size:1rem">${dot} ${esc(s.username || s.user_id)}</strong>
+          <span class="muted" style="font-size:.78rem">${s.dry_run ? '<span class="tag dry-tag">DRY RUN</span>' : ''}</span>
         </div>
         <div class="bot-stat-grid">
-          <span class="muted">Status</span><span>${noSpond ? '<span class="muted">no Spond credentials</span>' : s.last_error ? `<span class="err-text">${esc(s.last_error)}</span>` : 'ok'}</span>
-          <span class="muted">Last tick</span><span>${s.last_tick_ts ? new Date(s.last_tick_ts * 1000).toLocaleTimeString() : '—'}</span>
-          <span class="muted">Next event</span><span>${s.next_event_heading || '—'}</span>
+          <span class="muted">Status</span><span>${statusText}</span>
+          <span class="muted">Last tick</span><span>${lastTick}</span>
+          <span class="muted">Poll interval</span><span>${pollInterval}</span>
+          <span class="muted">Events cached</span><span>${s.events_cached}</span>
+          <span class="muted">Scheduled</span><span>${s.scheduled_count} pending</span>
           <span class="muted">Accepted</span><span>${s.accepted_count}</span>
           <span class="muted">Failed</span><span>${s.failed_count}</span>
         </div>`;
+
+      const pending = s.pending_events || [];
+      if (pending.length) {
+        const section = document.createElement('div');
+        section.className = 'bot-pending-events';
+        const label = document.createElement('div');
+        label.className = 'bot-pending-label';
+        label.textContent = 'Upcoming auto-accepts';
+        section.appendChild(label);
+        pending.forEach(ev => {
+          const row = document.createElement('div');
+          row.className = 'bot-pending-row';
+          const fireDate = new Date(ev.fire_ts * 1000);
+          const relMs = fireDate - Date.now();
+          const relH = (relMs / 3_600_000).toFixed(1);
+          const relText = relMs < 0 ? 'overdue' : relH < 24 ? `in ${relH}h` : `in ${(relMs / 86_400_000).toFixed(1)}d`;
+          row.innerHTML = `<span>${esc(ev.heading || ev.event_id)}</span><span class="bot-pending-time">${relText} · ${fireDate.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</span>`;
+          section.appendChild(row);
+        });
+        card.appendChild(section);
+      }
+
       grid.appendChild(card);
     });
   }

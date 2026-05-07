@@ -286,13 +286,13 @@ class Scheduler:
             if eid not in self._accepted and ts >= now
         ]
         pending.sort(key=lambda p: p[1])
+        event_headings = {e.get("id"): e.get("heading", e.get("id")) for e in self._events_cache}
+        pending_events = [
+            {"event_id": eid, "heading": event_headings.get(eid, eid), "fire_ts": ts}
+            for eid, ts in pending[:8]
+        ]
         next_id, next_ts = (pending[0] if pending else (None, None))
-        next_heading = None
-        if next_id:
-            for e in self._events_cache:
-                if e.get("id") == next_id:
-                    next_heading = e.get("heading")
-                    break
+        next_heading = pending_events[0]["heading"] if pending_events else None
         return {
             "user_id": self._user_id,
             "last_tick_ts": self._last_tick_ts,
@@ -301,6 +301,7 @@ class Scheduler:
             "scheduled_count": len(pending),
             "next_fire_ts": next_ts,
             "next_event_heading": next_heading,
+            "pending_events": pending_events,
             "accepted_count": len(self._accepted),
             "dry_run": bool(cfg.get("dry_run")),
             "logged_in": self._client is not None,
@@ -941,6 +942,7 @@ async def admin_status(_: dict = Depends(get_admin_user)) -> list:
                 "last_tick_ts": None, "last_error": None,
                 "events_cached": 0, "scheduled_count": 0,
                 "next_fire_ts": None, "next_event_heading": None,
+                "pending_events": [],
                 "accepted_count": 0, "dry_run": False,
                 "logged_in": False, "poll_interval": None,
                 "version": VERSION, "failed_count": 0,

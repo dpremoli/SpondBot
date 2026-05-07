@@ -6,18 +6,24 @@
 <title>SpondBot</title>
 <link rel="icon" type="image/png" href="/static/logo.png" />
 <link rel="stylesheet" href="/static/style.css" />
+<script>!function(){var t=localStorage.getItem('__theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');else if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}();</script>
 </head>
 <body>
 <header>
   <nav id="top-nav" class="top-nav">
     <a href="/" class="active">Events</a>
-    <a href="/logs">Logs</a>
-    <a href="/settings">Settings</a>
-    <a href="/admin" id="nav-admin" hidden>Admin</a>
+    <a href="/admin" id="nav-admin" hidden>Dashboard</a>
     <span class="nav-spacer"></span>
-    <span id="nav-user" class="nav-user"></span>
     <span id="nav-version" class="nav-version"></span>
-    <button id="nav-logout" class="ghost small">Logout</button>
+    <div class="nav-account" id="nav-account">
+      <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
+      <div class="nav-account-menu" id="nav-account-menu" hidden>
+        <a href="/logs" class="nav-account-item">Logs</a>
+        <a href="/settings" class="nav-account-item">Settings</a>
+        <div class="nav-account-divider"></div>
+        <button class="nav-account-item nav-account-item--logout" id="nav-logout">Log out</button>
+      </div>
+    </div>
   </nav>
 </header>
 
@@ -107,7 +113,7 @@
   </a>
   <a href="/admin" class="bottom-nav-item" id="bottom-admin" hidden>
     <span class="bottom-nav-icon">🛡</span>
-    <span>Admin</span>
+    <span>Dashboard</span>
   </a>
   <button class="bottom-nav-item bottom-nav-item--logout" id="mobile-logout">
     <span class="bottom-nav-icon">⏻</span>

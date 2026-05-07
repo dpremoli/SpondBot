@@ -80,6 +80,12 @@ function tlMakeNode(e, { label = null, clickHandler = null } = {}) {
   const nameSpan = document.createElement("span");
   nameSpan.className = "tl-card-name";
   nameSpan.innerHTML = label ? tlEscape(label) : tlEventLabel(e);
+  if (e.username) {
+    const userEl = document.createElement("small");
+    userEl.className = "tl-card-user";
+    userEl.textContent = `@${e.username}`;
+    nameSpan.appendChild(userEl);
+  }
 
   const meta = document.createElement("span");
   meta.className = "tl-card-meta";
