@@ -1,6 +1,43 @@
 // Shared nav init — included by every page
 (function () {
-  // Pre-fill from cache immediately to avoid flash on page transitions
+  // ── Theme ──────────────────────────────────────────────────────────────────
+  function applyTheme(theme) {
+    const root = document.documentElement;
+    if (theme === "light") root.setAttribute("data-theme", "light");
+    else if (theme === "dark") root.setAttribute("data-theme", "dark");
+    else root.removeAttribute("data-theme");
+  }
+  const savedTheme = localStorage.getItem("__theme");
+  if (savedTheme) applyTheme(savedTheme);
+
+  function toggleTheme() {
+    const isDark = !document.documentElement.hasAttribute("data-theme")
+      ? window.matchMedia("(prefers-color-scheme: light)").matches ? false : true
+      : document.documentElement.getAttribute("data-theme") === "dark";
+    const next = isDark ? "light" : "dark";
+    applyTheme(next);
+    localStorage.setItem("__theme", next);
+    document.querySelectorAll(".theme-btn").forEach(b => {
+      b.textContent = next === "dark" ? "☀️" : "🌙";
+      b.title = next === "dark" ? "Switch to light mode" : "Switch to dark mode";
+    });
+  }
+
+  // Inject theme button into nav
+  const nav = document.querySelector("#top-nav");
+  if (nav) {
+    const btn = document.createElement("button");
+    btn.className = "ghost small theme-btn";
+    const currentlyDark = savedTheme === "dark" || (!savedTheme && !window.matchMedia("(prefers-color-scheme: light)").matches);
+    btn.textContent = currentlyDark ? "☀️" : "🌙";
+    btn.title = currentlyDark ? "Switch to light mode" : "Switch to dark mode";
+    btn.addEventListener("click", toggleTheme);
+    const logout = nav.querySelector("#nav-logout");
+    if (logout) nav.insertBefore(btn, logout);
+    else nav.appendChild(btn);
+  }
+
+  // ── Pre-fill cache ────────────────────────────────────────────────────────
   const cachedUser = localStorage.getItem("__username");
   const cachedVersion = localStorage.getItem("__version");
   if (cachedUser) document.querySelectorAll(".nav-user").forEach(el => el.textContent = cachedUser);

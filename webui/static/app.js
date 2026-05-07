@@ -491,16 +491,83 @@ function renderNextUp() {
     .filter(e => e.armed_ts && e.armed_ts > now && !e.accepted && !e.waitlisted && !e.failed)
     .sort((a, b) => a.armed_ts - b.armed_ts)
     .slice(0, 5);
+
+  container.innerHTML = "";
   if (upcoming.length === 0) { container.hidden = true; return; }
   container.hidden = false;
-  container.innerHTML = `<div class="next-up-label">Next up</div>` +
-    upcoming.map(e => {
-      const rel = fmtRel(e.armed_ts);
-      return `<div class="next-up-row">
-        <span class="next-up-name">${escapeHtml(e.heading || "—")}</span>
-        <span class="next-up-time">${escapeHtml(rel)}</span>
-      </div>`;
-    }).join("");
+
+  const label = document.createElement("div");
+  label.className = "next-up-label";
+  label.textContent = "Next up";
+  container.appendChild(label);
+
+  for (const e of upcoming) {
+    const row = document.createElement("div");
+    row.className = "next-up-row";
+    row.title = "View event details";
+
+    // Left: name + group
+    const left = document.createElement("div");
+    left.className = "next-up-left";
+    const name = document.createElement("span");
+    name.className = "next-up-name";
+    name.textContent = e.heading || "—";
+    left.appendChild(name);
+    if (e.groupName && e.groupName !== e.heading) {
+      const grp = document.createElement("small");
+      grp.className = "next-up-group";
+      grp.textContent = e.groupName;
+      left.appendChild(grp);
+    }
+
+    // Right: times + accept button
+    const right = document.createElement("div");
+    right.className = "next-up-right";
+
+    const times = document.createElement("div");
+    times.className = "next-up-times";
+    const rel = document.createElement("span");
+    rel.className = "next-up-time";
+    rel.textContent = fmtRel(e.armed_ts);
+    const exact = document.createElement("small");
+    exact.className = "next-up-exact";
+    exact.textContent = fmt(e.armed_ts);
+    times.append(rel, exact);
+
+    const acceptBtn = document.createElement("button");
+    acceptBtn.className = "small next-up-accept";
+    acceptBtn.textContent = "Accept now";
+    acceptBtn.title = "Fire immediately";
+    acceptBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = "…";
+      try {
+        await api(`/api/events/${e.id}/accept`, { method: "POST" });
+        await Promise.all([loadEvents(), loadStatus()]);
+      } catch (err) {
+        acceptBtn.textContent = "Failed";
+        acceptBtn.title = err.message;
+        setTimeout(() => { acceptBtn.textContent = "Accept now"; acceptBtn.disabled = false; }, 3000);
+      }
+    });
+
+    right.append(times, acceptBtn);
+    row.append(left, right);
+
+    row.addEventListener("click", () => tlOpenEventModal(e.id, e.heading, {
+      startTimestamp: e.startTimestamp, endTimestamp: e.endTimestamp,
+      inviteTime: e.inviteTime, armed_ts: e.armed_ts,
+      accepted: false, waitlisted: false, failed: false,
+      location: e.location, groupName: e.groupName,
+      acceptedCount: e.acceptedCount, declinedCount: e.declinedCount,
+      waitinglistCount: e.waitinglistCount, unansweredCount: e.unansweredCount,
+      maxAccepted: e.maxAccepted, isFull: e.isFull,
+      paymentRequired: e.paymentRequired,
+    }));
+
+    container.appendChild(row);
+  }
 }
 
 function fmtCountdown(totalSecs) {
@@ -549,6 +616,7 @@ function escapeHtml(s) {
 }
 
 $("#refresh").addEventListener("click", manualRefresh);
+$("#status-refresh")?.addEventListener("click", manualRefresh);
 $("#save-selection").addEventListener("click", saveSelection);
 
 $("#group_by").addEventListener("change", async () => {
