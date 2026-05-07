@@ -707,9 +707,23 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
-    for user in load_users():
+    from webui.auth import DEBUG as _AUTH_DEBUG
+    if _AUTH_DEBUG:
+        log.warning(
+            "DEBUG=1: session cookie Secure flag is OFF — suitable for HTTP/LAN only. "
+            "Remove DEBUG=1 when serving over HTTPS."
+        )
+    else:
+        log.info(
+            "Session cookie Secure flag is ON — login requires HTTPS. "
+            "Set DEBUG=1 if accessing over plain HTTP."
+        )
+    users = load_users()
+    log.info("Starting up with %d user(s) registered", len(users))
+    for user in users:
         cfg = load_config(user["id"])
         if cfg.get("username") and cfg.get("password"):
+            log.info("Auto-starting scheduler for user=%s", user["username"])
             await manager.get(user["id"])
     yield
     await manager.stop_all()
@@ -730,10 +744,17 @@ class LoginBody(BaseModel):
 @app.post("/auth/login")
 @limiter.limit("5/minute")
 async def auth_login(request: Request, response: Response, body: LoginBody) -> dict:
+    from webui.auth import DEBUG as _AUTH_DEBUG
     user = get_user_by_username(body.username)
     ok = verify_password(body.password, user["hashed_password"] if user else None)
+    ip = request.client.host if request.client else "unknown"
     if not ok:
+        log.warning("login failed for username=%r from %s", body.username, ip)
         raise HTTPException(401, "Invalid username or password")
+    log.info(
+        "login ok: username=%s id=%s admin=%s from %s (secure_cookie=%s)",
+        user["username"], user["id"], user["is_admin"], ip, not _AUTH_DEBUG,
+    )
     token = create_access_token(user["id"], user["username"], user["is_admin"])
     response.set_cookie("sb_session", token, **COOKIE_KWARGS)
     return {"username": user["username"], "is_admin": user["is_admin"]}

@@ -245,3 +245,41 @@ def test_users_file_created_atomically(tmp_path):
         assert (tmp_path / "users.json").exists()
         # Temp file must be cleaned up
         assert not (tmp_path / "users.json.tmp").exists()
+
+
+# ============================================================
+# COOKIE_KWARGS — DEBUG vs production
+# ============================================================
+
+def test_cookie_secure_on_in_production():
+    """Secure flag must be True when DEBUG is off (prevents HTTP cookie leaks)."""
+    import importlib
+    import webui.auth as auth_mod
+    with patch.dict(os.environ, {"DEBUG": "0"}):
+        importlib.reload(auth_mod)
+        assert auth_mod.COOKIE_KWARGS["secure"] is True
+
+
+def test_cookie_secure_off_in_debug():
+    """Secure flag must be False when DEBUG=1 so HTTP logins work."""
+    import importlib
+    import webui.auth as auth_mod
+    with patch.dict(os.environ, {"DEBUG": "1"}):
+        importlib.reload(auth_mod)
+        assert auth_mod.COOKIE_KWARGS["secure"] is False
+
+
+def test_cookie_always_httponly():
+    """HttpOnly must always be set regardless of DEBUG."""
+    import importlib
+    import webui.auth as auth_mod
+    for debug in ("0", "1"):
+        with patch.dict(os.environ, {"DEBUG": debug}):
+            importlib.reload(auth_mod)
+            assert auth_mod.COOKIE_KWARGS["httponly"] is True
+
+
+def test_cookie_samesite_strict():
+    """SameSite=Strict must always be set (CSRF protection)."""
+    from webui.auth import COOKIE_KWARGS
+    assert COOKIE_KWARGS["samesite"] == "strict"
