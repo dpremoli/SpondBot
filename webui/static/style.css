@@ -89,7 +89,7 @@ header {
 }
 /* ── App shell layout ── */
 .app-wrap {
-  max-width: 1100px; margin: 0 auto; padding: 0 1.25rem;
+  max-width: 1500px; margin: 0 auto; padding: 0 1.5rem;
 }
 .app-header-inner {
   display: flex; justify-content: space-between; align-items: center;
@@ -110,7 +110,7 @@ header {
   width: 160px; flex-shrink: 0;
   position: sticky; top: 4rem; align-self: flex-start;
   border-right: 1px solid var(--border);
-  padding-right: .5rem; margin-right: 1.25rem;
+  padding-right: .5rem; padding-top: 1.5rem; margin-right: 1.25rem;
 }
 .ln-item {
   display: flex; align-items: center; gap: .45rem;
