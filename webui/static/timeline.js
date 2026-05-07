@@ -1,5 +1,3 @@
-// Shared timeline renderer — loaded by both logs.html and index.html
-
 function tlFmt(ts) {
   if (!ts) return "—";
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
@@ -54,9 +52,16 @@ function tlEventLabel(e) {
   return `${tlEscape(name)} <span class="tl-event-date">${dateStr}</span>`;
 }
 
-// Build a single timeline node.
-// label: override the card title (used in per-event modal to avoid repetition)
-// clickHandler: makes card clickable
+function tlGroupByDay(entries) {
+  const groups = new Map();
+  for (const e of entries) {
+    const key = tlDayKey(e.ts);
+    if (!groups.has(key)) groups.set(key, { label: tlFmtDate(e.ts), entries: [] });
+    groups.get(key).entries.push(e);
+  }
+  return groups;
+}
+
 function tlMakeNode(e, { label = null, clickHandler = null } = {}) {
   const cls = tlEntryClass(e);
   const node = document.createElement("div");
@@ -110,7 +115,6 @@ function tlMakeNode(e, { label = null, clickHandler = null } = {}) {
   return node;
 }
 
-// Main log view: group entries by day, each card shows event name + result
 function tlRenderByDay(container, entries, clickHandler = null) {
   container.innerHTML = "";
   if (entries.length === 0) {
@@ -118,14 +122,7 @@ function tlRenderByDay(container, entries, clickHandler = null) {
     return;
   }
 
-  const groups = new Map();
-  for (const e of entries) {
-    const key = tlDayKey(e.ts);
-    if (!groups.has(key)) groups.set(key, { label: tlFmtDate(e.ts), entries: [] });
-    groups.get(key).entries.push(e);
-  }
-
-  for (const [, group] of groups) {
+  for (const [, group] of tlGroupByDay(entries)) {
     const section = document.createElement("div");
     section.className = "tl-section";
 
@@ -146,31 +143,17 @@ function tlRenderByDay(container, entries, clickHandler = null) {
   }
 }
 
-// Per-event modal timeline: narrative labels, no event name repetition, grouped by day
-function tlRenderEventHistory(container, entries) {
+function tlRenderEventHistory(container, sorted) {
   container.innerHTML = "";
-  if (entries.length === 0) {
+  if (sorted.length === 0) {
     container.innerHTML = `<p class="muted tl-empty">No bot activity recorded for this event yet.</p>`;
     return;
-  }
-
-  const sorted = [...entries].sort((a, b) => {
-    const ta = new Date(typeof a.ts === "number" ? a.ts * 1000 : a.ts).getTime();
-    const tb = new Date(typeof b.ts === "number" ? b.ts * 1000 : b.ts).getTime();
-    return ta - tb;
-  });
-
-  const groups = new Map();
-  for (const e of sorted) {
-    const key = tlDayKey(e.ts);
-    if (!groups.has(key)) groups.set(key, { label: tlFmtDate(e.ts), entries: [] });
-    groups.get(key).entries.push(e);
   }
 
   let globalIdx = 0;
   const total = sorted.length;
 
-  for (const [, group] of groups) {
+  for (const [, group] of tlGroupByDay(sorted)) {
     const section = document.createElement("div");
     section.className = "tl-section";
 
@@ -209,15 +192,9 @@ function tlRenderEventHistory(container, entries) {
 
 // Render the 4-step lifecycle header inside the modal
 // meta: { inviteTime, armed_ts, startTimestamp, endTimestamp, accepted, waitlisted, failed }
-// historyEntries: sorted array of history entries for this event (to derive first attempt + outcome)
-function tlRenderLifecycle(container, meta, historyEntries) {
-  const sorted = historyEntries
-    ? [...historyEntries].sort((a, b) => {
-        const ta = new Date(typeof a.ts === "number" ? a.ts * 1000 : a.ts).getTime();
-        const tb = new Date(typeof b.ts === "number" ? b.ts * 1000 : b.ts).getTime();
-        return ta - tb;
-      })
-    : [];
+// meta: { inviteTime, armed_ts, startTimestamp, endTimestamp, accepted, waitlisted, failed }
+// sorted: ascending-sorted history entries for this event
+function tlRenderLifecycle(container, meta, sorted) {
 
   const firstEntry = sorted[0] || null;
   const lastEntry = sorted[sorted.length - 1] || null;
@@ -241,7 +218,6 @@ function tlRenderLifecycle(container, meta, historyEntries) {
       label: "Bot armed",
       value: meta.armed_ts ? tlFmt(meta.armed_ts) : "—",
       active: !!meta.armed_ts,
-      note: meta.armed_ts ? "scheduled to fire" : null,
     },
     {
       label: "First attempt",
@@ -282,18 +258,20 @@ async function tlOpenEventModal(eventId, heading, meta = {}) {
 
   title.textContent = heading || eventId;
   idEl.textContent = `ID: ${eventId}`;
-
-  // Render lifecycle with placeholders while loading
-  if (lifecycleContainer) tlRenderLifecycle(lifecycleContainer, meta, []);
   modalTl.innerHTML = `<p class="muted tl-empty">Loading…</p>`;
+  if (lifecycleContainer) lifecycleContainer.innerHTML = "";
   modal.hidden = false;
 
   try {
     const res = await fetch(`/api/history?event_id=${encodeURIComponent(eventId)}`);
     const { entries } = await res.json();
-    // Re-render lifecycle now that we have history entries
-    if (lifecycleContainer) tlRenderLifecycle(lifecycleContainer, meta, entries);
-    tlRenderEventHistory(modalTl, entries);
+    const sorted = [...entries].sort((a, b) => {
+      const ta = new Date(typeof a.ts === "number" ? a.ts * 1000 : a.ts).getTime();
+      const tb = new Date(typeof b.ts === "number" ? b.ts * 1000 : b.ts).getTime();
+      return ta - tb;
+    });
+    if (lifecycleContainer) tlRenderLifecycle(lifecycleContainer, meta, sorted);
+    tlRenderEventHistory(modalTl, sorted);
   } catch (err) {
     modalTl.innerHTML = `<p class="tl-empty" style="color:var(--err)">${tlEscape(String(err.message))}</p>`;
   }

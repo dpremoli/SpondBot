@@ -69,7 +69,7 @@ async def main() -> None:
     # Print up to 3 entries per list to keep output readable
     for k, v in responses.items():
         if isinstance(v, list):
-            print(f"    {k}: {v[:3]}{'...' if len(v) > 3 else ''}")
+            print(f"    {k} ({len(v)}): {v[:5]}{'...' if len(v) > 5 else ''}")
         else:
             print(f"    {k}: {v}")
 

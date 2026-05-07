@@ -164,21 +164,25 @@ def append_history(entry: dict[str, Any]) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
-def read_history(limit: int = 100, event_id: str | None = None) -> list[dict[str, Any]]:
-    if not HISTORY_PATH.exists():
-        return []
-    lines = HISTORY_PATH.read_text().splitlines()
+def _parse_history_lines(lines: list[str]) -> list[dict[str, Any]]:
     out = []
     for line in lines:
         try:
-            entry = json.loads(line)
+            out.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-        if event_id is None or entry.get("event_id") == event_id:
-            out.append(entry)
-    if event_id is None:
-        out = out[-limit:]
-    return list(reversed(out))
+    return out
+
+
+def read_history(limit: int = 100, event_id: str | None = None) -> list[dict[str, Any]]:
+    if not HISTORY_PATH.exists():
+        return []
+    entries = _parse_history_lines(HISTORY_PATH.read_text().splitlines())
+    if event_id is not None:
+        entries = [e for e in entries if e.get("event_id") == event_id]
+    else:
+        entries = entries[-limit:]
+    return list(reversed(entries))
 
 
 # ---------- persistent sets ----------
@@ -213,10 +217,12 @@ class Scheduler:
         self._client: spond.Spond | None = None
         self._client_key: tuple[str, str] | None = None
         self._client_lock = asyncio.Lock()
+        self._id_set_lock = asyncio.Lock()
         self._last_error: str | None = None
         self._last_tick_ts: float | None = None
         self._last_manual_refresh_ts: float = 0.0
-        self._cached_user_id: str | None = None
+        self._cached_user_id: str | None = None  # profile ID
+        self._cached_member_ids: dict[str, str] = {}  # group_id → member_id
         self._wake_event = asyncio.Event()
 
     @property
@@ -410,7 +416,8 @@ class Scheduler:
             log.exception("tick failure")
             return
 
-        # Pre-fetch user profile so _accept_later doesn't need an API call at fire time.
+        # Pre-fetch user profile and group member IDs so _accept_later uses the
+        # correct member ID (not profile ID) when calling change_response.
         if self._cached_user_id is None:
             try:
                 profile = await s.get_profile()
@@ -425,12 +432,31 @@ class Scheduler:
             except Exception as exc:
                 log.warning("profile pre-fetch failed: %s", exc)
 
-        uid = self._cached_user_id
+        profile_id = self._cached_user_id
+        if profile_id and group_ids:
+            try:
+                groups = await s.get_groups() or []
+                for g in groups:
+                    gid = g.get("id")
+                    if gid and gid not in self._cached_member_ids:
+                        for m in g.get("members", []):
+                            mpid = (m.get("profile") or {}).get("id")
+                            if mpid == profile_id:
+                                self._cached_member_ids[gid] = m["id"]
+                                break
+            except Exception as exc:
+                log.warning("group member ID pre-fetch failed: %s", exc)
+
         now = time.time()
         for e in all_events:
             eid = e["id"]
             if eid not in selected:
                 continue
+
+            group_id = ((e.get("recipients") or {}).get("group") or {}).get("id")
+            # Member ID is used by Spond's response lists; fall back to profile ID.
+            uid = self._cached_member_ids.get(group_id) if group_id else None
+            uid = uid or profile_id
 
             # Sync in-memory state from the live Spond responses so restarts
             # don't re-arm events the bot (or user) already responded to.
@@ -458,7 +484,7 @@ class Scheduler:
                 self._accept_later(
                     cfg["username"], cfg["password"], eid, delay, per,
                     e.get("heading", ""), bool(cfg.get("dry_run")),
-                    self._cached_user_id,
+                    uid,
                     e.get("startTimestamp"),
                 )
             )
@@ -534,7 +560,8 @@ class Scheduler:
                         log.info("%s event %s on attempt %d", response_key, event_id, attempt)
                         self._accepted.add(event_id)
                         self._waitlisted.discard(event_id)
-                    _save_id_set(ACCEPTED_PATH, self._accepted)
+                    async with self._id_set_lock:
+                        _save_id_set(ACCEPTED_PATH, self._accepted)
                     append_history({**_base, "response": response_key, "attempt": attempt,
                                     "ok": True, "waitlisted": waitlisted})
                     return
@@ -564,7 +591,8 @@ class Scheduler:
         total = retries + 1
         log.error("gave up on event %s after %d attempts", event_id, total)
         self._permanently_failed.add(event_id)
-        _save_id_set(FAILED_PATH, self._permanently_failed)
+        async with self._id_set_lock:
+            _save_id_set(FAILED_PATH, self._permanently_failed)
         # If every attempt was a 404, report as "not invited"; otherwise report
         # exhausted retries so the two failure modes remain distinguishable.
         error_msg = (
@@ -807,21 +835,16 @@ def clear_history(event_id: str | None = None) -> int:
     """Clear all history or only entries matching event_id. Returns count removed."""
     if not HISTORY_PATH.exists():
         return 0
-    lines = HISTORY_PATH.read_text().splitlines()
-    kept, removed = [], 0
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if event_id is not None and entry.get("event_id") != event_id:
-            kept.append(line)
-        else:
-            removed += 1
-    if event_id is not None:
-        HISTORY_PATH.write_text("\n".join(kept) + ("\n" if kept else ""))
-    else:
+    if event_id is None:
+        raw = HISTORY_PATH.read_text()
         HISTORY_PATH.write_text("")
+        return sum(1 for l in raw.splitlines() if l.strip())
+    entries = _parse_history_lines(HISTORY_PATH.read_text().splitlines())
+    kept = [e for e in entries if e.get("event_id") != event_id]
+    removed = len(entries) - len(kept)
+    HISTORY_PATH.write_text(
+        "\n".join(json.dumps(e) for e in kept) + ("\n" if kept else "")
+    )
     return removed
 
 
