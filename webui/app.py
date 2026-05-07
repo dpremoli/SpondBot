@@ -443,7 +443,17 @@ class Scheduler:
                             mpid = (m.get("profile") or {}).get("id")
                             if mpid == profile_id:
                                 self._cached_member_ids[gid] = m["id"]
+                                log.info(
+                                    "resolved member_id=%s in group %s (%s)",
+                                    m["id"], g.get("name", gid), gid,
+                                )
                                 break
+                        else:
+                            log.warning(
+                                "profile_id=%s not found as member in group %s (%s) — "
+                                "will fall back to profile ID for change_response",
+                                profile_id, g.get("name", gid), gid,
+                            )
             except Exception as exc:
                 log.warning("group member ID pre-fetch failed: %s", exc)
 
@@ -462,8 +472,12 @@ class Scheduler:
             # don't re-arm events the bot (or user) already responded to.
             responses = e.get("responses") or {}
             if uid and uid in (responses.get("acceptedIds") or []):
+                if eid not in self._accepted:
+                    log.info("sync: marking %s (%s) as accepted from Spond responses", eid, e.get("heading"))
                 self._accepted.add(eid)
             if uid and uid in (responses.get("waitinglistIds") or []):
+                if eid not in self._waitlisted:
+                    log.info("sync: marking %s (%s) as waitlisted from Spond responses", eid, e.get("heading"))
                 self._waitlisted.add(eid)
 
             if eid in self._accepted or eid in self._waitlisted or eid in self._permanently_failed:
@@ -475,8 +489,8 @@ class Scheduler:
             fire_ts = invite_ts + float(per["initial_delay"])
             delay = max(0.0, fire_ts - now)
             log.info(
-                "arming auto-%s for %s in %.1fs (%s)%s",
-                per["response"], eid, delay, e.get("heading"),
+                "arming auto-%s for %s in %.1fs (%s) using member_id=%s group=%s%s",
+                per["response"], eid, delay, e.get("heading"), uid, group_id,
                 " [dry-run]" if cfg.get("dry_run") else "",
             )
             self._scheduled_fire_ts[eid] = fire_ts
@@ -537,14 +551,20 @@ class Scheduler:
                 return
 
         if not user_id:
-            log.error("could not resolve profile id for accept")
-            append_history({**_base, "ok": False, "error": "no profile id"})
+            log.error(
+                "could not resolve user/member ID for event %s (%s) — cannot accept",
+                event_id, heading,
+            )
+            append_history({**_base, "ok": False, "error": "no user/member id"})
             return
 
         payload = {response_key: "true"}
         retries = int(per["retry_count"])
         interval = float(per["retry_interval"])
-        log.info("responding to %s (%s) as user_id=%s", event_id, heading, user_id)
+        log.info(
+            "responding to %s (%s) as user_id=%s retries=%d interval=%.1fs",
+            event_id, heading, user_id, retries, interval,
+        )
         consecutive_404s = 0
         for attempt in range(1, retries + 2):
             try:
@@ -553,11 +573,17 @@ class Scheduler:
                 if isinstance(result, dict) and "errorCode" not in result:
                     waitlisted = user_id in result.get("waitinglistIds", [])
                     if waitlisted:
-                        log.info("waitlisted for event %s on attempt %d", event_id, attempt)
+                        log.info(
+                            "waitlisted for %s (%s) on attempt %d — waitlist size: %d",
+                            event_id, heading, attempt, len(result.get("waitinglistIds", [])),
+                        )
                         self._waitlisted.add(event_id)
                         self._accepted.discard(event_id)
                     else:
-                        log.info("%s event %s on attempt %d", response_key, event_id, attempt)
+                        log.info(
+                            "%s %s (%s) on attempt %d — accepted count: %d",
+                            response_key, event_id, heading, attempt, len(result.get("acceptedIds", [])),
+                        )
                         self._accepted.add(event_id)
                         self._waitlisted.discard(event_id)
                     async with self._id_set_lock:
