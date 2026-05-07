@@ -505,6 +505,46 @@ class Scheduler:
         # Persist after loop in case Spond sync added new accepted ids.
         _save_id_set(ACCEPTED_PATH, self._accepted)
 
+    async def _tick_one(self, e: dict, cfg: dict) -> None:
+        """Re-evaluate scheduling for a single event (used by the per-event refresh endpoint)."""
+        eid = e["id"]
+        selected = set(cfg.get("selected_event_ids") or [])
+        if eid not in selected:
+            return
+        group_id = ((e.get("recipients") or {}).get("group") or {}).get("id")
+        uid = self._cached_member_ids.get(group_id) if group_id else None
+        uid = uid or self._cached_user_id
+        responses = e.get("responses") or {}
+        if uid and uid in (responses.get("acceptedIds") or []):
+            log.info("refresh: %s (%s) already accepted on Spond", eid, e.get("heading"))
+            self._accepted.add(eid)
+        if uid and uid in (responses.get("waitinglistIds") or []):
+            log.info("refresh: %s (%s) already waitlisted on Spond", eid, e.get("heading"))
+            self._waitlisted.add(eid)
+        if eid in self._accepted or eid in self._waitlisted:
+            return
+        # Clear failed flag so a manual refresh gives the event another chance.
+        self._permanently_failed.discard(eid)
+        existing = self._scheduled.get(eid)
+        if existing and not existing.done():
+            existing.cancel()
+        per = settings_for(cfg, eid)
+        invite_ts = _available_epoch(e)
+        fire_ts = invite_ts + float(per["initial_delay"])
+        delay = max(0.0, fire_ts - time.time())
+        log.info(
+            "refresh: rearming auto-%s for %s in %.1fs (%s) using member_id=%s",
+            per["response"], eid, delay, e.get("heading"), uid,
+        )
+        self._scheduled_fire_ts[eid] = fire_ts
+        self._scheduled[eid] = asyncio.create_task(
+            self._accept_later(
+                cfg["username"], cfg["password"], eid, delay, per,
+                e.get("heading", ""), bool(cfg.get("dry_run")),
+                uid, e.get("startTimestamp"),
+            )
+        )
+
     async def _accept_later(
         self,
         username: str,
@@ -799,6 +839,34 @@ async def api_accept_now(event_id: str) -> dict[str, Any]:
         )
     )
     return {"status": "fired", "event_id": event_id, "user_id": uid}
+
+
+@app.post("/api/events/{event_id}/refresh")
+async def api_refresh_event(event_id: str) -> dict[str, Any]:
+    """Re-fetch just this event's group from Spond and re-evaluate scheduling."""
+    cfg = load_config()
+    if not cfg.get("username") or not cfg.get("password"):
+        raise HTTPException(400, "No credentials configured")
+    cached = next((e for e in scheduler.events if e["id"] == event_id), None)
+    if not cached:
+        raise HTTPException(404, "Event not found in cache")
+    group_id = ((cached.get("recipients") or {}).get("group") or {}).get("id")
+    try:
+        s = await scheduler.get_client(cfg["username"], cfg["password"])
+        fresh_events = await s.get_events(group_id=group_id, include_scheduled=True, max_events=200) or []
+    except Exception as exc:
+        raise HTTPException(502, f"Spond fetch failed: {exc}") from exc
+    fresh = next((e for e in fresh_events if e["id"] == event_id), None)
+    if not fresh:
+        raise HTTPException(404, "Event not returned by Spond — it may have been removed")
+    # Replace the cached entry in-place.
+    for i, e in enumerate(scheduler._events_cache):
+        if e["id"] == event_id:
+            scheduler._events_cache[i] = fresh
+            break
+    # Re-evaluate scheduling for this one event.
+    await scheduler._tick_one(fresh, cfg)
+    return {"status": "refreshed", "event_id": event_id, "heading": fresh.get("heading")}
 
 
 @app.post("/api/selection")

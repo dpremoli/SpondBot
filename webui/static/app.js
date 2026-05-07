@@ -401,6 +401,24 @@ function renderSession(s, groupKey) {
       });
       tdOv.appendChild(acceptBtn);
     }
+    const refreshBtn = document.createElement("button");
+    refreshBtn.className = "small ghost";
+    refreshBtn.textContent = "↺";
+    refreshBtn.title = "Refresh this event from Spond";
+    refreshBtn.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      refreshBtn.disabled = true;
+      try {
+        await api(`/api/events/${s.id}/refresh`, { method: "POST" });
+        await loadEvents();
+      } catch (e) {
+        refreshBtn.title = e.message;
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    });
+    tdOv.appendChild(refreshBtn);
+
     const ovBtn = document.createElement("button");
     ovBtn.className = "small ghost";
     ovBtn.textContent = s.hasOverride ? "Edit override" : "Override";
