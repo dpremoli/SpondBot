@@ -14,7 +14,7 @@ from typing import Any
 
 import aiohttp
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -115,7 +115,10 @@ def decrypt_password(stored: str) -> str:
 # ---------- per-user data paths ----------
 
 def user_data_dir(user_id: str) -> Path:
-    d = DATA_DIR / "users" / user_id
+    base = (DATA_DIR / "users").resolve()
+    d = (base / user_id).resolve()
+    if not d.is_relative_to(base):
+        raise HTTPException(status_code=400, detail="Invalid user id")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -208,8 +211,7 @@ def read_history(
     entries = _parse_history_lines(path.read_text().splitlines())
     if event_id is not None:
         entries = [e for e in entries if e.get("event_id") == event_id]
-    else:
-        entries = entries[-limit:]
+    entries = entries[-limit:]
     return list(reversed(entries))
 
 
@@ -915,7 +917,7 @@ async def admin_delete_user(
 
 @app.get("/admin/activity")
 async def admin_activity(
-    limit: int = 200, _: dict = Depends(get_admin_user)
+    limit: int = Query(default=200, ge=1, le=1000), _: dict = Depends(get_admin_user)
 ) -> dict:
     users = {u["id"]: u["username"] for u in load_users()}
     all_entries: list[dict] = []
@@ -1251,7 +1253,7 @@ async def api_clear_event_settings(
 @app.get("/api/history")
 async def api_history(
     user: dict = Depends(get_current_user),
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=1000),
     event_id: str | None = None,
 ) -> dict[str, Any]:
     return {"entries": read_history(user["id"], limit=limit, event_id=event_id)}
@@ -1271,8 +1273,8 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
 @app.get("/static/{path:path}")
 async def static_files(path: str) -> FileResponse:
-    full = STATIC_DIR / path
-    if not full.is_file():
+    full = (STATIC_DIR / path).resolve()
+    if not full.is_relative_to(STATIC_DIR.resolve()) or not full.is_file():
         raise HTTPException(404, "Not found")
     return FileResponse(str(full), headers=_NO_CACHE)
 

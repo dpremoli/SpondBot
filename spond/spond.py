@@ -129,7 +129,7 @@ class Spond(_SpondBase):
     def _match_person(person: JSONDict, match_str: str) -> bool:
         return (
             person["id"] == match_str
-            or ("email" in person and person["email"]) == match_str
+            or ("email" in person and person["email"] == match_str)
             or person["firstName"] + " " + person["lastName"] == match_str
             or ("profile" in person and person["profile"]["id"] == match_str)
         )
@@ -282,7 +282,7 @@ class Spond(_SpondBase):
             await self._login_chat()
 
         if chat_id is not None:
-            return self._continue_chat(chat_id, text)
+            return await self._continue_chat(chat_id, text)
         if group_uid is None or user is None:
             return {
                 "error": "wrong usage, group_id and user_id needed or continue chat with chat_id"
