@@ -330,7 +330,7 @@ function renderSession(s, gKey) {
   if (s.inviteTime) {
     tdInvite.innerHTML = `${escapeHtml(fmt(s.inviteTime))}<br/><small class="muted">${escapeHtml(fmtRel(s.inviteTime))}</small>`;
   } else {
-    tdInvite.innerHTML = `<span class="muted">open now</span>`;
+    tdInvite.innerHTML = `<span class="muted">open now</span><br/><small class="muted">&nbsp;</small>`;
   }
 
   const tdStart = document.createElement("td");

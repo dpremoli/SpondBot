@@ -1,7 +1,7 @@
 function tlFmt(ts) {
   if (!ts) return "—";
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
-  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
 function tlFmtTime(ts) {
@@ -270,19 +270,17 @@ function tlRenderEventInfo(container, eventId, meta) {
   }
 
   const counts = [];
-  if (meta.acceptedCount != null) counts.push(`<span class="ev-count ev-count--ok">✓ ${meta.acceptedCount}${meta.maxAccepted ? `/${meta.maxAccepted}` : ""} attending</span>`);
+  if (meta.acceptedCount != null) {
+    const cap = meta.maxAccepted ? `/${meta.maxAccepted}` : "";
+    const full = meta.isFull ? " · full" : "";
+    counts.push(`<span class="ev-count ev-count--ok">✓ ${meta.acceptedCount}${cap} attending${full}</span>`);
+  }
   if (meta.waitinglistCount) counts.push(`<span class="ev-count ev-count--warn">⏳ ${meta.waitinglistCount} waitlisted</span>`);
   if (meta.unansweredCount) counts.push(`<span class="ev-count ev-count--muted">? ${meta.unansweredCount} unanswered</span>`);
   if (meta.declinedCount) counts.push(`<span class="ev-count ev-count--err">✕ ${meta.declinedCount} declined</span>`);
   if (counts.length) rows.push(`<div class="ev-info-row ev-info-counts">${counts.join("")}</div>`);
 
-  if (meta.isFull) {
-    rows.push(`<div class="ev-info-row"><span class="ev-full-badge">Event is full</span></div>`);
-  }
-
-  container.innerHTML = rows.length
-    ? `<div class="ev-info">${rows.join("")}</div>`
-    : "";
+  container.innerHTML = rows.length ? `<div class="ev-info">${rows.join("")}</div>` : "";
 }
 
 function tlRenderModalActions(container, eventId, meta) {
