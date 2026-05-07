@@ -380,7 +380,27 @@ function renderSession(s, groupKey) {
   tdStatus.innerHTML = `<span class="status-pill status-pill--${statusCls}">${statusLabel}</span>`;
 
   const tdOv = document.createElement("td");
+  tdOv.className = "td-actions";
   if (!past) {
+    if (isAvailable(s) && !s.accepted && !s.waitlisted) {
+      const acceptBtn = document.createElement("button");
+      acceptBtn.className = "small";
+      acceptBtn.textContent = "Accept now";
+      acceptBtn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        acceptBtn.disabled = true;
+        acceptBtn.textContent = "Firing…";
+        try {
+          await api(`/api/events/${s.id}/accept`, { method: "POST" });
+          acceptBtn.textContent = "Fired ✓";
+        } catch (e) {
+          acceptBtn.textContent = "Failed";
+          acceptBtn.title = e.message;
+          acceptBtn.disabled = false;
+        }
+      });
+      tdOv.appendChild(acceptBtn);
+    }
     const ovBtn = document.createElement("button");
     ovBtn.className = "small ghost";
     ovBtn.textContent = s.hasOverride ? "Edit override" : "Override";

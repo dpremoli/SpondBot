@@ -770,6 +770,37 @@ async def api_events() -> dict[str, Any]:
     }
 
 
+@app.post("/api/events/{event_id}/accept")
+async def api_accept_now(event_id: str) -> dict[str, Any]:
+    """Immediately attempt to accept an event, bypassing the scheduled delay."""
+    cfg = load_config()
+    if not cfg.get("username") or not cfg.get("password"):
+        raise HTTPException(400, "No credentials configured")
+    event = next((e for e in scheduler.events if e["id"] == event_id), None)
+    if not event:
+        raise HTTPException(404, "Event not found in cache — try refreshing")
+    if event_id in scheduler._permanently_failed:
+        scheduler._permanently_failed.discard(event_id)
+        async with scheduler._id_set_lock:
+            _save_id_set(FAILED_PATH, scheduler._permanently_failed)
+    per = settings_for(cfg, event_id)
+    group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    uid = scheduler._cached_member_ids.get(group_id) if group_id else None
+    uid = uid or scheduler._cached_user_id
+    # Cancel any existing scheduled task and rearm immediately.
+    existing = scheduler._scheduled.get(event_id)
+    if existing and not existing.done():
+        existing.cancel()
+    scheduler._scheduled[event_id] = asyncio.create_task(
+        scheduler._accept_later(
+            cfg["username"], cfg["password"], event_id, 0.0, per,
+            event.get("heading", ""), bool(cfg.get("dry_run")),
+            uid, event.get("startTimestamp"),
+        )
+    )
+    return {"status": "fired", "event_id": event_id, "user_id": uid}
+
+
 @app.post("/api/selection")
 async def api_selection(body: Selection) -> dict[str, str]:
     cfg = load_config()

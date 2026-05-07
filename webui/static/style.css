@@ -79,6 +79,7 @@ button {
   transition: filter .15s, background .15s;
 }
 button.small { padding: .2rem .55rem; font-size: .78rem; }
+.td-actions { display: flex; gap: .35rem; align-items: center; }
 button:hover { filter: brightness(1.12); }
 button.ghost {
   background: transparent; color: var(--muted);
