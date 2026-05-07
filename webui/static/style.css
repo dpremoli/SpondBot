@@ -209,6 +209,55 @@ tr.clickable:hover td { background: #1a1e26; }
 }
 .modal-close:hover { color: var(--fg); border-color: var(--fg); }
 
+@media (max-width: 699px) {
+  /* Bottom-sheet modal */
+  .modal-backdrop { align-items: flex-end; }
+  .modal {
+    width: 100%; max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+    border-left: 0; border-right: 0; border-bottom: 0;
+    padding: 1rem 1.1rem 1.5rem;
+    animation: sheet-up .22s ease-out;
+  }
+  @keyframes sheet-up {
+    from { transform: translateY(40px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+
+  /* Pull handle above content */
+  .modal::before {
+    content: "";
+    display: block;
+    width: 2.5rem; height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto .85rem;
+  }
+
+  /* Hide X button — user swipes or taps backdrop */
+  .modal-close { display: none; }
+
+  /* Stack info + buttons vertically */
+  .ev-info-wrap { flex-direction: column; gap: .75rem; }
+  .ev-action-btns {
+    flex-direction: row; min-width: 0; width: 100%;
+  }
+  .ev-action-btns button { flex: 1; padding: .55rem .5rem; font-size: .9rem; }
+
+  /* Lifecycle: horizontal scroll */
+  .lifecycle {
+    overflow-x: auto; flex-wrap: nowrap;
+    padding-bottom: .5rem;
+    -webkit-overflow-scrolling: touch;
+  }
+  .lifecycle-step { min-width: 72px; }
+  .lifecycle-connector { flex: 0 0 18px; }
+
+  /* Counts wrap tightly */
+  .ev-info-counts { gap: .3rem; }
+  .ev-count { font-size: .72rem; }
+}
+
 /* ── page header (logs page) ── */
 .page-header {
   display: flex; justify-content: space-between; align-items: flex-start;
