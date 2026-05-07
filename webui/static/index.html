@@ -21,14 +21,6 @@
   </nav>
 </header>
 
-<div id="status-bar" class="status-bar">
-  <span class="dot" id="status-dot"></span>
-  <span id="status-text">loading…</span>
-  <span class="spacer"></span>
-  <span id="status-next"></span>
-  <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
-</div>
-
 <div id="upcoming-banner" class="upcoming-banner" hidden>
   <div class="upcoming-inner">
     <span class="upcoming-label">Starting soon</span>
@@ -39,6 +31,15 @@
 <main>
   <h1>SpondBot</h1>
   <p class="sub">Auto-accept Spond event invites the moment they open.</p>
+
+  <section class="card status-panel" id="status-panel">
+    <div class="status-panel-header">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">loading…</span>
+      <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
+    </div>
+    <div id="status-next-up" class="status-next-up" hidden></div>
+  </section>
 
   <section class="card">
     <div class="card-header">
