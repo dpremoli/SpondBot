@@ -28,6 +28,11 @@ fetch("/auth/me").then(r => {
     if (adminLink) adminLink.hidden = false;
     const bottomAdmin = $("#bottom-admin");
     if (bottomAdmin) bottomAdmin.hidden = false;
+  } else {
+    const botSection = $("#section-bot-defaults");
+    if (botSection) botSection.hidden = true;
+    const ovSection = $("#section-overrides");
+    if (ovSection) ovSection.hidden = true;
   }
 });
 

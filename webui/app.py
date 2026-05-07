@@ -1020,6 +1020,12 @@ async def api_events(user: dict = Depends(get_current_user)) -> dict[str, Any]:
         in_waitlist = spond_uid and spond_uid in (responses.get("waitinglistIds") or [])
         accepted = bool(in_accepted) or e["id"] in sch.accepted
         waitlisted = bool(in_waitlist) or e["id"] in sch.waitlisted
+        loc = e.get("location") or {}
+        loc_name = (
+            (loc.get("feature") or {}).get("properties", {}).get("name")
+            or loc.get("address")
+            or loc.get("name")
+        )
         events.append({
             "id": e["id"],
             "heading": e.get("heading"),
@@ -1035,6 +1041,13 @@ async def api_events(user: dict = Depends(get_current_user)) -> dict[str, Any]:
             "paymentRequired": e["id"] in sch._payment_required or _is_payment_required(e),
             "hasOverride": e["id"] in event_settings,
             "armed_ts": sch._scheduled_fire_ts.get(e["id"]),
+            "location": loc_name,
+            "acceptedCount": len(responses.get("acceptedIds") or []),
+            "declinedCount": len(responses.get("declinedIds") or []),
+            "waitinglistCount": len(responses.get("waitinglistIds") or []),
+            "unansweredCount": len(responses.get("unansweredIds") or []),
+            "maxAccepted": e.get("maxAccepted"),
+            "isFull": bool(e.get("responses", {}).get("waitinglistIds")),
         })
     return {
         "events": events,
@@ -1060,6 +1073,35 @@ async def api_accept_now(
         async with sch._id_set_lock:
             _save_id_set(_failed_path(uid), sch._permanently_failed)
     per = settings_for(cfg, event_id)
+    group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    member_id = sch._cached_member_ids.get(group_id) if group_id else None
+    member_id = member_id or sch._cached_user_id
+    existing = sch._scheduled.get(event_id)
+    if existing and not existing.done():
+        existing.cancel()
+    sch._scheduled[event_id] = asyncio.create_task(
+        sch._accept_later(
+            cfg["username"], cfg["password"], event_id, 0.0, per,
+            event.get("heading", ""), bool(cfg.get("dry_run")),
+            member_id, event.get("startTimestamp"),
+        )
+    )
+    return {"status": "fired", "event_id": event_id, "user_id": member_id}
+
+
+@app.post("/api/events/{event_id}/decline")
+async def api_decline_now(
+    event_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, Any]:
+    uid = user["id"]
+    cfg = load_config(uid)
+    if not cfg.get("username") or not cfg.get("password"):
+        raise HTTPException(400, "No credentials configured")
+    sch = await manager.get(uid)
+    event = next((e for e in sch.events if e["id"] == event_id), None)
+    if not event:
+        raise HTTPException(404, "Event not found in cache — try refreshing")
+    per = {**settings_for(cfg, event_id), "response": "declined", "retry_count": 0}
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
@@ -1142,7 +1184,7 @@ async def api_get_settings(user: dict = Depends(get_current_user)) -> dict[str, 
 
 @app.post("/api/settings")
 async def api_save_settings(
-    body: Settings, user: dict = Depends(get_current_user)
+    body: Settings, user: dict = Depends(get_admin_user)
 ) -> dict[str, str]:
     uid = user["id"]
     cfg = load_config(uid)
@@ -1169,7 +1211,7 @@ async def api_get_event_settings(
 
 @app.post("/api/event-settings/{event_id}")
 async def api_set_event_settings(
-    event_id: str, body: EventSettings, user: dict = Depends(get_current_user)
+    event_id: str, body: EventSettings, user: dict = Depends(get_admin_user)
 ) -> dict[str, str]:
     uid = user["id"]
     cfg = load_config(uid)
@@ -1186,7 +1228,7 @@ async def api_set_event_settings(
 
 @app.delete("/api/event-settings/{event_id}")
 async def api_clear_event_settings(
-    event_id: str, user: dict = Depends(get_current_user)
+    event_id: str, user: dict = Depends(get_admin_user)
 ) -> dict[str, str]:
     uid = user["id"]
     cfg = load_config(uid)

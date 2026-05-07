@@ -44,7 +44,11 @@
     <div class="card-header">
       <h2>Events</h2>
       <div class="toolbar">
-        <label class="inline">Group by
+        <div class="view-toggle" role="group" aria-label="View">
+          <button id="view-list" class="view-btn view-btn--active" title="List view">☰ List</button>
+          <button id="view-cal" class="view-btn" title="Calendar view">📅 Calendar</button>
+        </div>
+        <label class="inline" id="group-by-label">Group by
           <select id="group_by">
             <option value="heading">heading</option>
             <option value="day">day</option>
@@ -61,6 +65,7 @@
       </div>
     </div>
     <div id="event-groups"></div>
+    <div id="cal-view" hidden></div>
   </section>
 </main>
 
@@ -74,6 +79,8 @@
       </div>
       <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
     </div>
+    <div id="modal-event-info" class="modal-event-info"></div>
+    <div id="modal-actions" class="modal-actions"></div>
     <div id="modal-lifecycle" class="modal-lifecycle"></div>
     <div class="modal-section-label">Bot activity</div>
     <div id="modal-timeline" class="timeline timeline--modal"></div>

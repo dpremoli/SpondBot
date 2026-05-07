@@ -21,6 +21,7 @@ fetch("/auth/me").then(r => {
   return r.json();
 }).then(u => {
   if (!u) return;
+  currentUser = u;
   const navUser = $("#nav-user");
   if (navUser) navUser.textContent = u.username;
   if (u.is_admin) {
@@ -106,6 +107,7 @@ let selectedSet = new Set();
 let groupByMode = "heading";
 let showPast = false;
 let _selectionDirty = false;
+let currentUser = null;
 
 const _groupHeaderRefs = new Map();
 
@@ -385,17 +387,24 @@ function renderSession(s, gKey) {
     });
     tdOv.appendChild(refreshBtn);
 
-    const ovBtn = document.createElement("button");
-    ovBtn.className = "small ghost";
-    ovBtn.textContent = s.hasOverride ? "Edit override" : "Override";
-    ovBtn.addEventListener("click", (ev) => { ev.stopPropagation(); openOverrideDialog(s); });
-    tdOv.appendChild(ovBtn);
+    if (currentUser?.is_admin) {
+      const ovBtn = document.createElement("button");
+      ovBtn.className = "small ghost";
+      ovBtn.textContent = s.hasOverride ? "Edit override" : "Override";
+      ovBtn.addEventListener("click", (ev) => { ev.stopPropagation(); openOverrideDialog(s); });
+      tdOv.appendChild(ovBtn);
+    }
   }
 
   tr.addEventListener("click", () => tlOpenEventModal(s.id, s.heading, {
     startTimestamp: s.startTimestamp, endTimestamp: s.endTimestamp,
     inviteTime: s.inviteTime, armed_ts: s.armed_ts,
     accepted: s.accepted && !s.waitlisted, waitlisted: s.waitlisted, failed: s.failed,
+    location: s.location, groupName: s.groupName,
+    acceptedCount: s.acceptedCount, declinedCount: s.declinedCount,
+    waitinglistCount: s.waitinglistCount, unansweredCount: s.unansweredCount,
+    maxAccepted: s.maxAccepted, isFull: s.isFull,
+    paymentRequired: s.paymentRequired,
   }));
 
   if (groupByMode !== "heading") {
@@ -560,6 +569,131 @@ $("#show-past").addEventListener("change", () => {
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.hidden = true; });
 })();
+
+// ---- View toggle ----
+let _calView = false;
+let _calYear = new Date().getFullYear();
+let _calMonth = new Date().getMonth();
+
+$("#view-list").addEventListener("click", () => {
+  _calView = false;
+  $("#view-list").classList.add("view-btn--active");
+  $("#view-cal").classList.remove("view-btn--active");
+  $("#event-groups").hidden = false;
+  $("#cal-view").hidden = true;
+  $("#group-by-label").hidden = false;
+});
+
+$("#view-cal").addEventListener("click", () => {
+  _calView = true;
+  $("#view-cal").classList.add("view-btn--active");
+  $("#view-list").classList.remove("view-btn--active");
+  $("#event-groups").hidden = true;
+  $("#cal-view").hidden = false;
+  $("#group-by-label").hidden = true;
+  renderCalendar();
+});
+
+// ---- Calendar view ----
+function renderCalendar() {
+  const container = $("#cal-view");
+  container.innerHTML = "";
+
+  const nav = document.createElement("div");
+  nav.className = "cal-nav";
+  const prevBtn = document.createElement("button");
+  prevBtn.className = "ghost small";
+  prevBtn.textContent = "‹ Prev";
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "ghost small";
+  nextBtn.textContent = "Next ›";
+  const monthLabel = document.createElement("span");
+  monthLabel.className = "cal-month-label";
+  monthLabel.textContent = new Date(_calYear, _calMonth, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  prevBtn.addEventListener("click", () => {
+    _calMonth--;
+    if (_calMonth < 0) { _calMonth = 11; _calYear--; }
+    renderCalendar();
+  });
+  nextBtn.addEventListener("click", () => {
+    _calMonth++;
+    if (_calMonth > 11) { _calMonth = 0; _calYear++; }
+    renderCalendar();
+  });
+
+  nav.append(prevBtn, monthLabel, nextBtn);
+  container.appendChild(nav);
+
+  const dayMap = new Map();
+  for (const e of cachedEvents) {
+    if (!e.startTimestamp) continue;
+    const d = new Date(e.startTimestamp);
+    if (d.getFullYear() !== _calYear || d.getMonth() !== _calMonth) continue;
+    const key = `${_calYear}-${String(_calMonth + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (!dayMap.has(key)) dayMap.set(key, []);
+    dayMap.get(key).push(e);
+  }
+
+  const grid = document.createElement("div");
+  grid.className = "cal-grid";
+
+  for (const name of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+    const h = document.createElement("div");
+    h.className = "cal-day-name";
+    h.textContent = name;
+    grid.appendChild(h);
+  }
+
+  let startDow = new Date(_calYear, _calMonth, 1).getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1;
+  for (let i = 0; i < startDow; i++) {
+    const cell = document.createElement("div");
+    cell.className = "cal-day cal-day--empty";
+    grid.appendChild(cell);
+  }
+
+  const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
+  const today = new Date();
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cell = document.createElement("div");
+    cell.className = "cal-day";
+    const isToday = today.getFullYear() === _calYear && today.getMonth() === _calMonth && today.getDate() === day;
+    if (isToday) cell.classList.add("cal-day--today");
+
+    const numEl = document.createElement("div");
+    numEl.className = "cal-day-num";
+    numEl.textContent = day;
+    cell.appendChild(numEl);
+
+    const key = `${_calYear}-${String(_calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    for (const e of (dayMap.get(key) || [])) {
+      const pill = document.createElement("div");
+      pill.className = "cal-pill cal-pill--" + (
+        e.waitlisted ? "waitlisted" : e.accepted ? "accepted" : e.failed ? "failed" :
+        isPast(e) ? "past" : "scheduled"
+      );
+      pill.textContent = e.heading || "—";
+      pill.title = `${e.heading || "—"}\n${fmt(e.startTimestamp)}`;
+      pill.addEventListener("click", () => tlOpenEventModal(e.id, e.heading, {
+        startTimestamp: e.startTimestamp, endTimestamp: e.endTimestamp,
+        inviteTime: e.inviteTime, armed_ts: e.armed_ts,
+        accepted: e.accepted && !e.waitlisted, waitlisted: e.waitlisted, failed: e.failed,
+        location: e.location, groupName: e.groupName,
+        acceptedCount: e.acceptedCount, declinedCount: e.declinedCount,
+        waitinglistCount: e.waitinglistCount, unansweredCount: e.unansweredCount,
+        maxAccepted: e.maxAccepted, isFull: e.isFull,
+        paymentRequired: e.paymentRequired,
+      }));
+      cell.appendChild(pill);
+    }
+
+    grid.appendChild(cell);
+  }
+
+  container.appendChild(grid);
+}
 
 loadConfig()
   .then(() => Promise.all([loadEvents(), loadStatus()]))

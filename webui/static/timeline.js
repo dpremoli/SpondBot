@@ -252,18 +252,124 @@ function tlRenderLifecycle(container, meta, sorted) {
   `;
 }
 
+function tlRenderEventInfo(container, eventId, meta) {
+  if (!container) return;
+
+  const rows = [];
+
+  if (meta.startTimestamp) {
+    const start = tlFmt(meta.startTimestamp);
+    const end = meta.endTimestamp ? ` — ${tlFmt(meta.endTimestamp)}` : "";
+    rows.push(`<div class="ev-info-row"><span class="ev-info-icon">🗓</span><span>${tlEscape(start + end)}</span></div>`);
+  }
+  if (meta.location) {
+    rows.push(`<div class="ev-info-row"><span class="ev-info-icon">📍</span><span>${tlEscape(meta.location)}</span></div>`);
+  }
+  if (meta.groupName) {
+    rows.push(`<div class="ev-info-row"><span class="ev-info-icon">👥</span><span>${tlEscape(meta.groupName)}</span></div>`);
+  }
+
+  const counts = [];
+  if (meta.acceptedCount != null) counts.push(`<span class="ev-count ev-count--ok">✓ ${meta.acceptedCount}${meta.maxAccepted ? `/${meta.maxAccepted}` : ""} attending</span>`);
+  if (meta.waitinglistCount) counts.push(`<span class="ev-count ev-count--warn">⏳ ${meta.waitinglistCount} waitlisted</span>`);
+  if (meta.unansweredCount) counts.push(`<span class="ev-count ev-count--muted">? ${meta.unansweredCount} unanswered</span>`);
+  if (meta.declinedCount) counts.push(`<span class="ev-count ev-count--err">✕ ${meta.declinedCount} declined</span>`);
+  if (counts.length) rows.push(`<div class="ev-info-row ev-info-counts">${counts.join("")}</div>`);
+
+  if (meta.isFull) {
+    rows.push(`<div class="ev-info-row"><span class="ev-full-badge">Event is full</span></div>`);
+  }
+
+  container.innerHTML = rows.length
+    ? `<div class="ev-info">${rows.join("")}</div>`
+    : "";
+}
+
+function tlRenderModalActions(container, eventId, meta) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  const isPast = meta.endTimestamp && new Date(meta.endTimestamp).getTime() < Date.now();
+  if (isPast) return;
+
+  const acceptBtn = document.createElement("button");
+  const declineBtn = document.createElement("button");
+  declineBtn.className = "ghost small";
+
+  if (meta.accepted) {
+    acceptBtn.textContent = "✓ Accepted";
+    acceptBtn.className = "small ev-btn--accepted";
+    acceptBtn.disabled = true;
+    declineBtn.textContent = "Decline";
+  } else if (meta.waitlisted) {
+    acceptBtn.textContent = "⏳ Waitlisted";
+    acceptBtn.className = "small ev-btn--waitlisted";
+    acceptBtn.disabled = true;
+    declineBtn.textContent = "Decline";
+  } else {
+    acceptBtn.textContent = "Accept";
+    acceptBtn.className = "small";
+    declineBtn.textContent = "Decline";
+  }
+
+  if (meta.paymentRequired) {
+    acceptBtn.disabled = true;
+    acceptBtn.title = "Payment required — accept manually in the Spond app";
+  }
+
+  async function fireAction(verb, btn, otherBtn) {
+    btn.disabled = true;
+    otherBtn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "…";
+    try {
+      const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/${verb}`, { method: "POST" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.detail || res.statusText);
+      }
+      btn.textContent = verb === "accept" ? "✓ Accepted" : "✕ Declined";
+    } catch (e) {
+      btn.textContent = prev;
+      btn.disabled = false;
+      otherBtn.disabled = false;
+      const errEl = container.querySelector(".modal-action-err") || document.createElement("span");
+      errEl.className = "modal-action-err";
+      errEl.textContent = e.message;
+      container.appendChild(errEl);
+    }
+  }
+
+  acceptBtn.addEventListener("click", () => {
+    if (!acceptBtn.disabled) fireAction("accept", acceptBtn, declineBtn);
+  });
+
+  declineBtn.addEventListener("click", () => {
+    if (confirm(`Decline "${meta._heading || eventId}"? This cannot be undone without going to Spond.`)) {
+      fireAction("decline", declineBtn, acceptBtn);
+    }
+  });
+
+  container.append(acceptBtn, declineBtn);
+}
+
 // Open the shared event-history modal (requires #event-modal in the page)
 async function tlOpenEventModal(eventId, heading, meta = {}) {
   const modal = document.querySelector("#event-modal");
   const title = document.querySelector("#modal-title");
   const idEl = document.querySelector("#modal-event-id");
+  const infoContainer = document.querySelector("#modal-event-info");
+  const actionsContainer = document.querySelector("#modal-actions");
   const lifecycleContainer = document.querySelector("#modal-lifecycle");
   const modalTl = document.querySelector("#modal-timeline");
 
+  meta._heading = heading;
   title.textContent = heading || eventId;
   idEl.textContent = `ID: ${eventId}`;
   modalTl.innerHTML = `<p class="muted tl-empty">Loading…</p>`;
   if (lifecycleContainer) lifecycleContainer.innerHTML = "";
+  tlRenderEventInfo(infoContainer, eventId, meta);
+  tlRenderModalActions(actionsContainer, eventId, meta);
   modal.hidden = false;
 
   try {

@@ -79,7 +79,7 @@ button {
   transition: filter .15s, background .15s;
 }
 button.small { padding: .2rem .55rem; font-size: .78rem; }
-.td-actions { display: flex; gap: .35rem; align-items: center; }
+.td-actions { display: flex; gap: .35rem; align-items: center; white-space: nowrap; }
 button:hover { filter: brightness(1.12); }
 button.ghost {
   background: transparent; color: var(--muted);
@@ -354,6 +354,44 @@ tr.selected-row > td:first-child {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* ── Event info inside modal ── */
+.modal-event-info { margin: .75rem 0 .5rem; }
+.ev-info { display: flex; flex-direction: column; gap: .4rem; }
+.ev-info-row {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .88rem; color: var(--fg);
+}
+.ev-info-icon { font-size: .95rem; flex-shrink: 0; width: 1.4rem; text-align: center; }
+.ev-info-counts { gap: .5rem; flex-wrap: wrap; padding-left: 1.9rem; }
+.ev-count {
+  font-size: .78rem; padding: .15rem .5rem;
+  border-radius: 99px; border: 1px solid var(--border);
+}
+.ev-count--ok { color: var(--ok); border-color: var(--ok); background: #0f2a1a; }
+.ev-count--warn { color: var(--warn); border-color: var(--warn); background: #2a1f00; }
+.ev-count--err { color: var(--err); border-color: var(--err); background: #2a0f0f; }
+.ev-count--muted { color: var(--muted); }
+.ev-full-badge {
+  font-size: .78rem; color: var(--warn);
+  border: 1px solid var(--warn); border-radius: 4px;
+  padding: .15rem .5rem; margin-left: 1.9rem;
+}
+
+/* ── Modal actions (Accept / Decline) ── */
+.modal-actions {
+  display: flex; gap: .5rem; align-items: center;
+  margin: .5rem 0 .75rem;
+}
+.ev-btn--accepted {
+  background: #0f2a1a; color: var(--ok);
+  border: 1px solid var(--ok); cursor: default;
+}
+.ev-btn--waitlisted {
+  background: #2a1f00; color: var(--warn);
+  border: 1px solid var(--warn); cursor: default;
+}
+.modal-action-err { color: var(--err); font-size: .82rem; }
+
 /* ── 4-step lifecycle inside modal ── */
 .modal-lifecycle {
   margin: .75rem 0 1rem;
@@ -561,4 +599,71 @@ tr.selected-row > td:first-child {
 
 @media (min-width: 700px) {
   .bottom-nav { display: none !important; }
+}
+
+/* ── View toggle ── */
+.view-toggle { display: flex; gap: .25rem; }
+.view-btn {
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); padding: .3rem .7rem;
+  border-radius: 5px; font-size: .82rem; cursor: pointer;
+  transition: all .15s; filter: none;
+}
+.view-btn:hover { color: var(--fg); filter: none; }
+.view-btn--active { background: var(--card2); color: var(--fg); border-color: var(--accent); }
+
+/* ── Calendar view ── */
+.cal-nav {
+  display: flex; align-items: center; gap: .75rem;
+  margin-bottom: .75rem;
+}
+.cal-month-label {
+  font-weight: 600; font-size: .95rem;
+  min-width: 160px; text-align: center;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.cal-day-name {
+  text-align: center; font-size: .72rem; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase;
+  color: var(--muted); padding: .4rem 0;
+}
+.cal-day {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-height: 80px;
+  padding: .3rem .4rem;
+  overflow: hidden;
+}
+.cal-day--empty { background: transparent; border-color: transparent; min-height: 0; }
+.cal-day--today { border-color: var(--accent); }
+.cal-day-num {
+  font-size: .75rem; font-weight: 600; color: var(--muted);
+  margin-bottom: .25rem;
+}
+.cal-day--today .cal-day-num { color: var(--accent); }
+
+.cal-pill {
+  font-size: .68rem; padding: .1rem .35rem;
+  border-radius: 3px; margin-bottom: 2px;
+  cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  transition: opacity .15s;
+  border-left: 2px solid transparent;
+}
+.cal-pill:hover { opacity: .75; }
+.cal-pill--accepted { background: #0f2a1a; color: var(--ok); border-left-color: var(--ok); }
+.cal-pill--waitlisted { background: #2a1f00; color: var(--warn); border-left-color: var(--warn); }
+.cal-pill--failed { background: #2a0f0f; color: var(--err); border-left-color: var(--err); }
+.cal-pill--scheduled { background: #0d1f3a; color: var(--accent); border-left-color: var(--accent); }
+.cal-pill--past { background: #1a1e26; color: var(--muted); border-left-color: var(--border); }
+
+@media (max-width: 699px) {
+  .cal-day { min-height: 60px; padding: .2rem .3rem; }
+  .cal-pill { font-size: .62rem; }
 }
