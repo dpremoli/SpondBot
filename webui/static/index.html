@@ -15,7 +15,6 @@
       <a href="/" class="app-brand">SpondBot</a>
       <div class="header-right">
         <button class="ghost small theme-btn" id="theme-btn">🌙</button>
-        <span id="nav-version" class="nav-version"></span>
         <div class="nav-account" id="nav-account">
           <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
           <div class="nav-account-menu" id="nav-account-menu" hidden></div>
@@ -35,49 +34,52 @@
     </aside>
 
     <main>
-      <h1>SpondBot</h1>
-      <p class="sub">Auto-accept Spond event invites the moment they open.</p>
-
-      <section class="card status-panel" id="status-panel">
-        <div class="status-panel-header">
-          <span class="dot" id="status-dot"></span>
-          <span id="status-text">loading…</span>
-          <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
-          <button id="status-refresh" class="ghost small status-refresh-btn" title="Refresh now">↺</button>
-        </div>
-        <div id="status-next-up" class="status-next-up" hidden></div>
-      </section>
-
-      <section class="card">
-        <div class="card-header">
-          <h2>Events</h2>
-          <div class="toolbar">
-            <div class="view-toggle" role="group" aria-label="View">
-              <button id="view-list" class="view-btn view-btn--active" title="List view">☰ List</button>
-              <button id="view-cal" class="view-btn" title="Calendar view">📅 Cal</button>
+      <div class="main-layout">
+        <div class="main-content">
+          <section class="card">
+            <div class="card-header">
+              <h2>Events</h2>
+              <div class="toolbar">
+                <div class="view-toggle" role="group" aria-label="View">
+                  <button id="view-list" class="view-btn view-btn--active" title="List view">☰ List</button>
+                  <button id="view-cal" class="view-btn" title="Calendar view">📅 Cal</button>
+                </div>
+                <span class="toolbar-sep"></span>
+                <label class="inline toolbar-select-label" id="group-by-label">
+                  <span class="toolbar-label-text">Group</span>
+                  <select id="group_by">
+                    <option value="heading">heading</option>
+                    <option value="day">day</option>
+                    <option value="week">week</option>
+                    <option value="year">year</option>
+                  </select>
+                </label>
+                <label class="inline toolbar-check-label">
+                  <input type="checkbox" id="show-past" /> <span>Past</span>
+                </label>
+                <span class="toolbar-sep"></span>
+                <button id="refresh" class="ghost toolbar-icon-btn" title="Refresh events">↺</button>
+                <button id="save-selection" class="ghost">Save</button>
+                <span id="events-status" class="status"></span>
+              </div>
             </div>
-            <span class="toolbar-sep"></span>
-            <label class="inline toolbar-select-label" id="group-by-label">
-              <span class="toolbar-label-text">Group</span>
-              <select id="group_by">
-                <option value="heading">heading</option>
-                <option value="day">day</option>
-                <option value="week">week</option>
-                <option value="year">year</option>
-              </select>
-            </label>
-            <label class="inline toolbar-check-label">
-              <input type="checkbox" id="show-past" /> <span>Past</span>
-            </label>
-            <span class="toolbar-sep"></span>
-            <button id="refresh" class="ghost toolbar-icon-btn" title="Refresh events">↺</button>
-            <button id="save-selection" class="ghost">Save</button>
-            <span id="events-status" class="status"></span>
-          </div>
+            <div id="event-groups"></div>
+            <div id="cal-view" hidden></div>
+          </section>
         </div>
-        <div id="event-groups"></div>
-        <div id="cal-view" hidden></div>
-      </section>
+
+        <aside class="status-panel-aside">
+          <section class="card status-panel" id="status-panel">
+            <div class="status-panel-header">
+              <span class="dot" id="status-dot"></span>
+              <span id="status-text">loading…</span>
+              <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
+              <button id="status-refresh" class="ghost small status-refresh-btn" title="Refresh now">↺</button>
+            </div>
+            <div id="status-next-up" class="status-next-up" hidden></div>
+          </section>
+        </aside>
+      </div>
     </main>
   </div>
 </div>

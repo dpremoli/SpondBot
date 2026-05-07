@@ -23,6 +23,12 @@
     });
   }
 
+  // Inject fixed version badge (bottom-right)
+  const _vBadge = document.createElement("span");
+  _vBadge.className = "app-version-badge";
+  _vBadge.id = "app-version-badge";
+  document.body.appendChild(_vBadge);
+
   // Wire up all theme buttons (hardcoded in HTML now, not injected)
   const currentlyDark = savedTheme === "dark" || (!savedTheme && !window.matchMedia("(prefers-color-scheme: light)").matches);
   document.querySelectorAll(".theme-btn").forEach(btn => {
@@ -55,7 +61,10 @@
   const cachedUser = localStorage.getItem("__username");
   const cachedVersion = localStorage.getItem("__version");
   if (cachedUser) document.querySelectorAll(".nav-user").forEach(el => el.textContent = cachedUser);
-  if (cachedVersion) document.querySelectorAll(".nav-version").forEach(el => el.textContent = cachedVersion);
+  if (cachedVersion) {
+    const badge = document.getElementById("app-version-badge");
+    if (badge) badge.textContent = cachedVersion;
+  }
   if (localStorage.getItem("__is_admin") === "1") {
     const leftNav = document.getElementById("left-nav");
     if (leftNav) leftNav.hidden = false;
@@ -77,7 +86,8 @@
     fetch("/api/status").then(r => r.ok ? r.json() : null).then(s => {
       if (s?.version) {
         const v = `v${s.version}`;
-        document.querySelectorAll(".nav-version").forEach(el => el.textContent = v);
+        const badge = document.getElementById("app-version-badge");
+        if (badge) badge.textContent = v;
         localStorage.setItem("__version", v);
       }
     }).catch(() => {});
