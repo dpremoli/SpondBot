@@ -111,6 +111,17 @@ pip install pytest
 pytest tests/
 ```
 
+## Disclaimer
+
+This project was built with the assistance of an AI coding tool. While care has
+been taken to follow security best practices, there may be unknown
+vulnerabilities in the code that have not been identified or audited.
+
+**Do not use a password you reuse elsewhere for your Spond account in this
+app.** Use a unique, throwaway password for the Spond account you connect to
+SpondBot. This app is intended for personal, low-stakes automation — treat it
+accordingly.
+
 ## License
 
 GPL-3.0 — inherits from the upstream Spond library.
