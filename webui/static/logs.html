@@ -10,47 +10,57 @@
 </head>
 <body>
 <header>
-  <nav id="top-nav" class="top-nav">
-    <a href="/">Events</a>
-    <a href="/admin" id="nav-admin" hidden>Dashboard</a>
-    <span class="nav-spacer"></span>
-    <span id="nav-version" class="nav-version"></span>
-    <div class="nav-account" id="nav-account">
-      <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
-      <div class="nav-account-menu" id="nav-account-menu" hidden>
-        <a href="/logs" class="nav-account-item active">Logs</a>
-        <a href="/settings" class="nav-account-item">Settings</a>
-        <div class="nav-account-divider"></div>
-        <button class="nav-account-item nav-account-item--logout" id="nav-logout">Log out</button>
+  <div class="app-wrap">
+    <div class="app-header-inner">
+      <a href="/" class="app-brand">SpondBot</a>
+      <div class="header-right">
+        <button class="ghost small theme-btn" id="theme-btn">🌙</button>
+        <span id="nav-version" class="nav-version"></span>
+        <div class="nav-account" id="nav-account">
+          <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
+          <div class="nav-account-menu" id="nav-account-menu" hidden></div>
+        </div>
       </div>
     </div>
-  </nav>
+  </div>
 </header>
-<main>
-  <div class="page-header">
-    <div>
-      <h1>Logs</h1>
-      <p class="sub">Every auto-response the bot has attempted.</p>
-    </div>
-    <div class="toolbar">
-      <button id="reload">Reload</button>
-      <button id="clear-all" class="ghost">Clear all</button>
-      <span id="logs-status" class="status"></span>
-    </div>
-  </div>
 
-  <div class="filter-bar">
-    <input type="search" id="filter-text" placeholder="Search by event name…" />
-    <div class="filter-pills" role="group" aria-label="Filter by status">
-      <button class="pill pill--active" data-status="all">All</button>
-      <button class="pill" data-status="accepted">Accepted</button>
-      <button class="pill" data-status="waitlisted">Waitlisted</button>
-      <button class="pill" data-status="failed">Failed</button>
-    </div>
-  </div>
+<div class="app-wrap">
+  <div class="app-body">
+    <aside class="left-nav" id="left-nav" hidden>
+      <a href="/" class="ln-item" id="ln-events">📅 Events</a>
+      <a href="/admin" class="ln-item" id="ln-dashboard">🛡 Dashboard</a>
+      <a href="/logs" class="ln-item" id="ln-logs">📋 Logs</a>
+      <a href="/settings" class="ln-item" id="ln-settings">⚙️ Settings</a>
+    </aside>
 
-  <div id="timeline" class="timeline"></div>
-</main>
+    <main>
+      <div class="page-header">
+        <div>
+          <h1>Logs</h1>
+          <p class="sub">Every auto-response the bot has attempted.</p>
+        </div>
+        <div class="toolbar">
+          <button id="reload">Reload</button>
+          <button id="clear-all" class="ghost">Clear all</button>
+          <span id="logs-status" class="status"></span>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <input type="search" id="filter-text" placeholder="Search by event name…" />
+        <div class="filter-pills" role="group" aria-label="Filter by status">
+          <button class="pill pill--active" data-status="all">All</button>
+          <button class="pill" data-status="accepted">Accepted</button>
+          <button class="pill" data-status="waitlisted">Waitlisted</button>
+          <button class="pill" data-status="failed">Failed</button>
+        </div>
+      </div>
+
+      <div id="timeline" class="timeline"></div>
+    </main>
+  </div>
+</div>
 
 <!-- Per-event drill-down modal -->
 <div id="event-modal" class="modal-backdrop" hidden>

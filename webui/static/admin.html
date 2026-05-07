@@ -10,34 +10,39 @@
 </head>
 <body>
 <header>
-  <nav id="top-nav" class="top-nav">
-    <a href="/">Events</a>
-    <a href="/admin" id="nav-admin" class="active" hidden>Dashboard</a>
-    <span class="nav-spacer"></span>
-    <span id="nav-version" class="nav-version"></span>
-    <div class="nav-account" id="nav-account">
-      <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
-      <div class="nav-account-menu" id="nav-account-menu" hidden>
-        <a href="/logs" class="nav-account-item">Logs</a>
-        <a href="/settings" class="nav-account-item">Settings</a>
-        <div class="nav-account-divider"></div>
-        <button class="nav-account-item nav-account-item--logout" id="nav-logout">Log out</button>
+  <div class="app-wrap">
+    <div class="app-header-inner">
+      <a href="/" class="app-brand">SpondBot</a>
+      <div class="header-right">
+        <button class="ghost small theme-btn" id="theme-btn">🌙</button>
+        <span id="nav-version" class="nav-version"></span>
+        <div class="nav-account" id="nav-account">
+          <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
+          <div class="nav-account-menu" id="nav-account-menu" hidden></div>
+        </div>
       </div>
     </div>
-  </nav>
+  </div>
 </header>
 
-<main>
-  <h1>Dashboard</h1>
+<div class="app-wrap">
+  <div class="app-body">
+    <aside class="left-nav" id="left-nav" hidden>
+      <a href="/" class="ln-item" id="ln-events">📅 Events</a>
+      <a href="/admin" class="ln-item" id="ln-dashboard">🛡 Dashboard</a>
+      <a href="/logs" class="ln-item" id="ln-logs">📋 Logs</a>
+      <a href="/settings" class="ln-item" id="ln-settings">⚙️ Settings</a>
+    </aside>
 
-  <div class="admin-layout">
-    <nav class="admin-sidebar">
-      <button class="tab-btn tab-btn--active" data-tab="users">Users</button>
-      <button class="tab-btn" data-tab="activity">Activity</button>
-      <button class="tab-btn" data-tab="bots">Bot Status</button>
-    </nav>
+    <main>
+      <h1>Dashboard</h1>
 
-    <div class="admin-content">
+      <div class="tab-bar">
+        <button class="tab-btn tab-btn--active" data-tab="users">Users</button>
+        <button class="tab-btn" data-tab="activity">Activity</button>
+        <button class="tab-btn" data-tab="bots">Bot Status</button>
+      </div>
+
       <!-- Users tab -->
       <div id="tab-users" class="tab-panel">
         <div class="card-header" style="margin-bottom:.75rem">
@@ -80,9 +85,9 @@
         </div>
         <div id="bots-grid"></div>
       </div>
-    </div>
+    </main>
   </div>
-</main>
+</div>
 
 <!-- New / edit user modal -->
 <div id="user-modal" class="modal-backdrop" hidden>
