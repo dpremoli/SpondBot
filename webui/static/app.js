@@ -129,6 +129,7 @@ async function loadEvents() {
     cachedEvents = events;
     for (const e of events) e.selected = selectedSet.has(e.id);
     renderGroups();
+    renderNextUp();
     status.textContent = `${events.length} events`;
     status.className = "status ok";
   } catch (e) {
@@ -316,9 +317,9 @@ function renderSession(s, gKey) {
   const tdInvite = document.createElement("td");
   tdInvite.dataset.label = "Invite opens";
   if (s.inviteTime) {
-    tdInvite.innerHTML = `${escapeHtml(fmt(s.inviteTime))}<br/><small class="muted">${escapeHtml(fmtRel(s.inviteTime))}</small>`;
+    tdInvite.innerHTML = `${escapeHtml(fmt(s.inviteTime))}<small class="muted td-sub">${escapeHtml(fmtRel(s.inviteTime))}</small>`;
   } else {
-    tdInvite.innerHTML = `<span class="muted">open now</span><br/><small>&nbsp;</small>`;
+    tdInvite.innerHTML = `<span class="muted">open now</span><small class="td-sub">&nbsp;</small>`;
   }
 
   const tdStart = document.createElement("td");
@@ -478,13 +479,28 @@ function renderStatus(s) {
     const failedNote = s.failed_count ? ` · ${s.failed_count} failed` : "";
     text.textContent = `healthy · last check ${last} · ${s.events_cached} events · ${s.scheduled_count} armed${failedNote}`;
   }
-  const next = $("#status-next");
-  if (s.next_fire_ts) {
-    next.textContent = `next: ${s.next_event_heading || "—"} ${fmtRel(s.next_fire_ts)}`;
-  } else {
-    next.textContent = "";
-  }
   $("#status-dry").hidden = !s.dry_run;
+  renderNextUp();
+}
+
+function renderNextUp() {
+  const container = $("#status-next-up");
+  if (!container) return;
+  const now = Date.now() / 1000;
+  const upcoming = cachedEvents
+    .filter(e => e.armed_ts && e.armed_ts > now && !e.accepted && !e.waitlisted && !e.failed)
+    .sort((a, b) => a.armed_ts - b.armed_ts)
+    .slice(0, 5);
+  if (upcoming.length === 0) { container.hidden = true; return; }
+  container.hidden = false;
+  container.innerHTML = `<div class="next-up-label">Next up</div>` +
+    upcoming.map(e => {
+      const rel = fmtRel(e.armed_ts);
+      return `<div class="next-up-row">
+        <span class="next-up-name">${escapeHtml(e.heading || "—")}</span>
+        <span class="next-up-time">${escapeHtml(rel)}</span>
+      </div>`;
+    }).join("");
 }
 
 function fmtCountdown(totalSecs) {
