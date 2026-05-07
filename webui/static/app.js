@@ -105,6 +105,7 @@ let cachedEvents = [];
 let selectedSet = new Set();
 let groupByMode = "heading";
 let showPast = false;
+let _selectionDirty = false;
 
 const _groupHeaderRefs = new Map();
 
@@ -278,10 +279,12 @@ function renderGroup(g) {
   selectAll.addEventListener("change", () => {
     const on = selectAll.checked;
     for (const s of selectableSessions) {
+      if (s.paymentRequired) continue;
       s.selected = on;
       if (on) selectedSet.add(s.id);
       else selectedSet.delete(s.id);
     }
+    _selectionDirty = true;
     patchGroupHeader(g.key);
   });
 
@@ -304,12 +307,18 @@ function renderSession(s, gKey) {
   cb.type = "checkbox";
   cb.checked = s.selected;
   cb.disabled = past;
-  if (s.selected) tr.classList.add("selected-row");
+  if (s.paymentRequired) {
+    cb.disabled = true;
+    cb.checked = false;
+    cb.title = "Payment required — cannot be auto-accepted by the bot";
+  }
+  if (s.selected && !s.paymentRequired) tr.classList.add("selected-row");
   cb.addEventListener("click", (ev) => ev.stopPropagation());
   cb.addEventListener("change", () => {
     s.selected = cb.checked;
     if (cb.checked) { selectedSet.add(s.id); tr.classList.add("selected-row"); }
     else { selectedSet.delete(s.id); tr.classList.remove("selected-row"); }
+    _selectionDirty = true;
     patchGroupHeader(gKey);
   });
   const tdCb = document.createElement("td");
@@ -335,7 +344,10 @@ function renderSession(s, gKey) {
     : s.failed ? ["failed", "failed"]
     : isAvailable(s) ? ["open", "open"]
     : ["scheduled", "scheduled"];
-  tdStatus.innerHTML = `<span class="status-pill status-pill--${statusCls}">${statusLabel}</span>`;
+  const paymentBadge = s.paymentRequired
+    ? ` <span class="status-pill status-pill--payment" title="Payment required — accept manually in the Spond app">💳 payment</span>`
+    : "";
+  tdStatus.innerHTML = `<span class="status-pill status-pill--${statusCls}">${statusLabel}</span>${paymentBadge}`;
 
   const tdOv = document.createElement("td");
   tdOv.className = "td-actions";
@@ -423,6 +435,7 @@ async function saveSelection() {
   const status = $("#events-status");
   try {
     await api("/api/selection", { method: "POST", body: JSON.stringify({ event_ids: [...selectedSet] }) });
+    _selectionDirty = false;
     status.textContent = `Saved ${selectedSet.size} selected`;
     status.className = "status ok";
     await loadStatus();
@@ -431,6 +444,13 @@ async function saveSelection() {
     status.className = "status err";
   }
 }
+
+window.addEventListener("beforeunload", (e) => {
+  if (_selectionDirty) {
+    e.preventDefault();
+    e.returnValue = "You have unsaved event selections. Leave without saving?";
+  }
+});
 
 let _lastStatus = null;
 

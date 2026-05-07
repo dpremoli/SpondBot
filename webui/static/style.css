@@ -134,7 +134,6 @@ tr:last-child td { border-bottom: 0; }
 tr.accepted td.result { color: var(--ok); }
 tr.waitlisted td.result { color: var(--warn); }
 tr.failed td.result { color: var(--err); }
-tr.available td:nth-child(2) { color: var(--warn); }
 /* failed row in the events table (permanently failed, not logs) */
 tr.failed td { color: var(--err); }
 
@@ -348,6 +347,7 @@ tr.clickable:hover td { background: #1a1e26; }
 .status-pill--open { border-color: var(--accent); color: var(--accent); }
 .status-pill--scheduled { opacity: .6; }
 .status-pill--muted { opacity: .5; }
+.status-pill--payment { border-color: #a78bfa; color: #a78bfa; }
 
 /* ── selected event row accent ── */
 tr.selected-row > td:first-child {

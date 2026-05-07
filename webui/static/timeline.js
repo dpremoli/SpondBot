@@ -208,16 +208,20 @@ function tlRenderLifecycle(container, meta, sorted) {
     : lastEntry.waitlisted ? "waitlisted"
     : "accepted";
 
+  // If the event was manually accepted (no armed_ts) but history exists,
+  // show "manual trigger" for the armed step and "already open" for invite.
+  const wasManual = !meta.armed_ts && !!firstEntry;
+
   const steps = [
     {
       label: "Invite opens",
-      value: meta.inviteTime ? tlFmt(meta.inviteTime) : "—",
-      active: !!meta.inviteTime,
+      value: meta.inviteTime ? tlFmt(meta.inviteTime) : (firstEntry ? "already open" : "—"),
+      active: !!meta.inviteTime || !!firstEntry,
     },
     {
       label: "Bot armed",
-      value: meta.armed_ts ? tlFmt(meta.armed_ts) : "—",
-      active: !!meta.armed_ts,
+      value: meta.armed_ts ? tlFmt(meta.armed_ts) : (wasManual ? "manual trigger" : "—"),
+      active: !!meta.armed_ts || wasManual,
     },
     {
       label: "First attempt",

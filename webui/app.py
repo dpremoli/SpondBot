@@ -45,6 +45,14 @@ logging.basicConfig(
 )
 log = logging.getLogger("spondbot")
 
+# Suppress uvicorn noise from TLS handshakes hitting the plain-HTTP port
+# (phones/browsers sending HTTPS to an HTTP endpoint — harmless but spammy).
+class _SuppressTLSNoise(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "Invalid HTTP request received" not in record.getMessage()
+
+logging.getLogger("uvicorn.error").addFilter(_SuppressTLSNoise())
+
 DATA_DIR = Path(os.environ.get("SPONDBOT_DATA", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 KEY_PATH = DATA_DIR / ".key"
@@ -122,6 +130,10 @@ def _history_path(user_id: str) -> Path:
 
 def _accepted_path(user_id: str) -> Path:
     return user_data_dir(user_id) / "accepted_ids.json"
+
+
+def _payment_path(user_id: str) -> Path:
+    return user_data_dir(user_id) / "payment_required_ids.json"
 
 
 def _failed_path(user_id: str) -> Path:
@@ -243,6 +255,7 @@ class Scheduler:
         self._accepted: set[str] = _load_id_set(_accepted_path(user_id))
         self._waitlisted: set[str] = set()
         self._permanently_failed: set[str] = _load_id_set(_failed_path(user_id))
+        self._payment_required: set[str] = _load_id_set(_payment_path(user_id))
         self._events_cache: list[dict] = []
         self._client: spond.Spond | None = None
         self._client_key: tuple[str, str] | None = None
@@ -490,6 +503,17 @@ class Scheduler:
                     log.info("sync: marking %s (%s) as waitlisted from Spond", eid, e.get("heading"))
                 self._waitlisted.add(eid)
 
+            if _is_payment_required(e):
+                if eid not in self._payment_required:
+                    log.warning(
+                        "event %s (%s) requires payment — cannot auto-accept, "
+                        "accept manually in the Spond app",
+                        eid, e.get("heading"),
+                    )
+                    self._payment_required.add(eid)
+                    _save_id_set(_payment_path(self._user_id), self._payment_required)
+                continue
+
             if eid in self._accepted or eid in self._waitlisted or eid in self._permanently_failed:
                 continue
             if eid in self._scheduled and not self._scheduled[eid].done():
@@ -627,7 +651,27 @@ class Scheduler:
                     append_history({**_base, "response": response_key, "attempt": attempt,
                                     "ok": True, "waitlisted": waitlisted}, self._user_id)
                     return
-                if result.get("errorCode") == 404:
+                error_code = result.get("errorCode")
+                result_str = str(result).lower()
+                is_payment_err = (
+                    error_code == 402
+                    or "payment" in result_str
+                    or "fee" in result_str
+                    or "registrationfee" in result_str
+                )
+                if is_payment_err:
+                    log.error(
+                        "event %s (%s) requires payment (response: %s) — "
+                        "cannot auto-accept, accept manually in the Spond app",
+                        event_id, heading, result,
+                    )
+                    self._payment_required.add(event_id)
+                    async with self._id_set_lock:
+                        _save_id_set(_payment_path(self._user_id), self._payment_required)
+                    append_history({**_base, "response": response_key, "ok": False,
+                                    "error": "payment required — accept manually in Spond"}, self._user_id)
+                    return
+                if error_code == 404:
                     consecutive_404s += 1
                     log.warning(
                         "attempt %d for %s: error response (full body): %s — %s",
@@ -656,6 +700,16 @@ class Scheduler:
             else f"gave up after {total} attempts"
         )
         append_history({**_base, "response": response_key, "ok": False, "error": error_msg}, self._user_id)
+
+
+def _is_payment_required(event: dict) -> bool:
+    """Return True if this event requires upfront payment to register."""
+    if event.get("requiresPayment"):
+        return True
+    reg = event.get("registrationInfo") or {}
+    if reg.get("requiresPayment") or reg.get("paymentInfo") or reg.get("price"):
+        return True
+    return False
 
 
 def _available_epoch(event: dict) -> float:
@@ -860,7 +914,22 @@ async def admin_activity(
 
 @app.get("/admin/status")
 async def admin_status(_: dict = Depends(get_admin_user)) -> list:
-    return manager.all_status()
+    uid_to_name = {u["id"]: u["username"] for u in load_users()}
+    active = {s["user_id"]: {**s, "username": uid_to_name.get(s["user_id"], s["user_id"])}
+              for s in manager.all_status()}
+    # Include registered users who have no active scheduler (no Spond creds configured yet)
+    for uid, username in uid_to_name.items():
+        if uid not in active:
+            active[uid] = {
+                "user_id": uid, "username": username,
+                "last_tick_ts": None, "last_error": None,
+                "events_cached": 0, "scheduled_count": 0,
+                "next_fire_ts": None, "next_event_heading": None,
+                "accepted_count": 0, "dry_run": False,
+                "logged_in": False, "poll_interval": None,
+                "version": VERSION, "failed_count": 0,
+            }
+    return list(active.values())
 
 
 # ---------- existing API routes (now user-scoped) ----------
@@ -963,6 +1032,7 @@ async def api_events(user: dict = Depends(get_current_user)) -> dict[str, Any]:
             "accepted": accepted and not waitlisted,
             "waitlisted": waitlisted,
             "failed": e["id"] in sch._permanently_failed,
+            "paymentRequired": e["id"] in sch._payment_required or _is_payment_required(e),
             "hasOverride": e["id"] in event_settings,
             "armed_ts": sch._scheduled_fire_ts.get(e["id"]),
         })
