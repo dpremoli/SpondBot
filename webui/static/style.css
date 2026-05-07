@@ -357,7 +357,14 @@ tr.selected-row > td:first-child {
 
 /* ── Event info inside modal ── */
 .modal-event-info { margin: .65rem 0 0; }
-.ev-info { display: flex; flex-direction: column; gap: .3rem; }
+.ev-info-wrap {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: .5rem;
+}
+.ev-info { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 0; }
 .ev-info-row {
   display: flex; align-items: center; gap: .5rem;
   font-size: .86rem; color: var(--fg);
@@ -373,14 +380,11 @@ tr.selected-row > td:first-child {
 .ev-count--warn { color: var(--warn); border-color: var(--warn); background: #2a1f00; }
 .ev-count--err { color: var(--err); border-color: var(--err); background: #2a0f0f; }
 .ev-count--muted { color: var(--muted); border-color: transparent; }
-
-/* ── Modal actions (Accept / Decline) ── */
-.modal-actions {
-  display: flex; gap: .45rem; align-items: center;
-  margin: .75rem 0 .5rem;
-  padding-top: .65rem;
-  border-top: 1px solid var(--border);
+.ev-action-btns {
+  display: flex; flex-direction: column; gap: .4rem;
+  flex-shrink: 0; align-items: stretch; min-width: 90px;
 }
+.ev-action-btns button { width: 100%; }
 .ev-btn--accepted {
   background: #0f2a1a; color: var(--ok);
   border: 1px solid var(--ok); cursor: default; filter: none;
@@ -389,7 +393,7 @@ tr.selected-row > td:first-child {
   background: #2a1f00; color: var(--warn);
   border: 1px solid var(--warn); cursor: default; filter: none;
 }
-.modal-action-err { color: var(--err); font-size: .82rem; margin-left: .25rem; }
+.modal-action-err { color: var(--err); font-size: .78rem; margin-top: .2rem; }
 
 /* ── 4-step lifecycle inside modal ── */
 .modal-lifecycle {

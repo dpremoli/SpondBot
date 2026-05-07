@@ -255,18 +255,19 @@ function tlRenderLifecycle(container, meta, sorted) {
 function tlRenderEventInfo(container, eventId, meta) {
   if (!container) return;
 
-  const rows = [];
+  const isPast = meta.endTimestamp && new Date(meta.endTimestamp).getTime() < Date.now();
 
+  const infoLines = [];
   if (meta.startTimestamp) {
     const start = tlFmt(meta.startTimestamp);
     const end = meta.endTimestamp ? ` — ${tlFmt(meta.endTimestamp)}` : "";
-    rows.push(`<div class="ev-info-row"><span class="ev-info-icon">🗓</span><span>${tlEscape(start + end)}</span></div>`);
+    infoLines.push(`<div class="ev-info-row"><span class="ev-info-icon">🗓</span><span>${tlEscape(start + end)}</span></div>`);
   }
   if (meta.location) {
-    rows.push(`<div class="ev-info-row"><span class="ev-info-icon">📍</span><span>${tlEscape(meta.location)}</span></div>`);
+    infoLines.push(`<div class="ev-info-row"><span class="ev-info-icon">📍</span><span>${tlEscape(meta.location)}</span></div>`);
   }
   if (meta.groupName) {
-    rows.push(`<div class="ev-info-row"><span class="ev-info-icon">👥</span><span>${tlEscape(meta.groupName)}</span></div>`);
+    infoLines.push(`<div class="ev-info-row"><span class="ev-info-icon">👥</span><span>${tlEscape(meta.groupName)}</span></div>`);
   }
 
   const counts = [];
@@ -278,36 +279,46 @@ function tlRenderEventInfo(container, eventId, meta) {
   if (meta.waitinglistCount) counts.push(`<span class="ev-count ev-count--warn">⏳ ${meta.waitinglistCount} waitlisted</span>`);
   if (meta.unansweredCount) counts.push(`<span class="ev-count ev-count--muted">? ${meta.unansweredCount} unanswered</span>`);
   if (meta.declinedCount) counts.push(`<span class="ev-count ev-count--err">✕ ${meta.declinedCount} declined</span>`);
-  if (counts.length) rows.push(`<div class="ev-info-row ev-info-counts">${counts.join("")}</div>`);
+  if (counts.length) infoLines.push(`<div class="ev-info-row ev-info-counts">${counts.join("")}</div>`);
 
-  container.innerHTML = rows.length ? `<div class="ev-info">${rows.join("")}</div>` : "";
+  if (!infoLines.length && isPast) { container.innerHTML = ""; return; }
+
+  const wrap = document.createElement("div");
+  wrap.className = "ev-info-wrap";
+
+  const infoEl = document.createElement("div");
+  infoEl.className = "ev-info";
+  infoEl.innerHTML = infoLines.join("");
+  wrap.appendChild(infoEl);
+
+  if (!isPast) {
+    const btns = document.createElement("div");
+    btns.className = "ev-action-btns";
+    _buildActionBtns(btns, eventId, meta);
+    wrap.appendChild(btns);
+  }
+
+  container.innerHTML = "";
+  container.appendChild(wrap);
 }
 
-function tlRenderModalActions(container, eventId, meta) {
-  if (!container) return;
-  container.innerHTML = "";
-
-  const isPast = meta.endTimestamp && new Date(meta.endTimestamp).getTime() < Date.now();
-  if (isPast) return;
-
+function _buildActionBtns(container, eventId, meta) {
   const acceptBtn = document.createElement("button");
   const declineBtn = document.createElement("button");
+  acceptBtn.className = "small";
   declineBtn.className = "ghost small";
+  declineBtn.textContent = "Decline";
 
   if (meta.accepted) {
     acceptBtn.textContent = "✓ Accepted";
     acceptBtn.className = "small ev-btn--accepted";
     acceptBtn.disabled = true;
-    declineBtn.textContent = "Decline";
   } else if (meta.waitlisted) {
     acceptBtn.textContent = "⏳ Waitlisted";
     acceptBtn.className = "small ev-btn--waitlisted";
     acceptBtn.disabled = true;
-    declineBtn.textContent = "Decline";
   } else {
     acceptBtn.textContent = "Accept";
-    acceptBtn.className = "small";
-    declineBtn.textContent = "Decline";
   }
 
   if (meta.paymentRequired) {
@@ -332,7 +343,7 @@ function tlRenderModalActions(container, eventId, meta) {
       btn.textContent = prev;
       btn.disabled = false;
       otherBtn.disabled = false;
-      const errEl = container.querySelector(".modal-action-err") || document.createElement("span");
+      const errEl = document.createElement("span");
       errEl.className = "modal-action-err";
       errEl.textContent = e.message;
       container.appendChild(errEl);
@@ -342,14 +353,17 @@ function tlRenderModalActions(container, eventId, meta) {
   acceptBtn.addEventListener("click", () => {
     if (!acceptBtn.disabled) fireAction("accept", acceptBtn, declineBtn);
   });
-
   declineBtn.addEventListener("click", () => {
-    if (confirm(`Decline "${meta._heading || eventId}"? This cannot be undone without going to Spond.`)) {
+    if (confirm(`Decline "${meta._heading || eventId}"?\nThis cannot be undone without going to Spond.`)) {
       fireAction("decline", declineBtn, acceptBtn);
     }
   });
 
   container.append(acceptBtn, declineBtn);
+}
+
+function tlRenderModalActions(container) {
+  if (container) container.innerHTML = "";
 }
 
 // Open the shared event-history modal (requires #event-modal in the page)
@@ -368,7 +382,7 @@ async function tlOpenEventModal(eventId, heading, meta = {}) {
   modalTl.innerHTML = `<p class="muted tl-empty">Loading…</p>`;
   if (lifecycleContainer) lifecycleContainer.innerHTML = "";
   tlRenderEventInfo(infoContainer, eventId, meta);
-  tlRenderModalActions(actionsContainer, eventId, meta);
+  tlRenderModalActions(actionsContainer);
   modal.hidden = false;
 
   try {
