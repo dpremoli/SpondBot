@@ -137,6 +137,7 @@ tr.failed td.result { color: var(--err); }
 /* failed row in the events table (permanently failed, not logs) */
 tr.failed td { color: var(--err); }
 
+table.sessions td { height: 3.2rem; }
 table.sessions input[type=checkbox] { width: auto; margin: 0; }
 
 /* status bar */
