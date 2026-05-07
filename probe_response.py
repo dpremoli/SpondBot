@@ -27,7 +27,13 @@ DRY_PROBE = os.environ.get("DRY_PROBE", "0") == "1"
 
 
 async def main() -> None:
-    cfg = load_config()
+    from webui.users import load_users
+    users = load_users()
+    if not users:
+        print("ERROR: no users found in the user store.")
+        return
+    user_id = users[0]["id"]
+    cfg = load_config(user_id)
     username = os.environ.get("SPOND_USER") or cfg.get("username", "")
     password = os.environ.get("SPOND_PASS") or cfg.get("password", "")
 
