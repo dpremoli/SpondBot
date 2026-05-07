@@ -15,31 +15,18 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-// ---- Auth/nav init ----
+// ---- Auth init (nav handled by nav.js) ----
 fetch("/auth/me").then(r => {
   if (!r.ok) { location.replace("/login"); return null; }
   return r.json();
 }).then(u => {
   if (!u) return;
-  const navUser = $("#nav-user");
-  if (navUser) navUser.textContent = u.username;
-  if (u.is_admin) {
-    const adminLink = $("#nav-admin");
-    if (adminLink) adminLink.hidden = false;
-    const bottomAdmin = $("#bottom-admin");
-    if (bottomAdmin) bottomAdmin.hidden = false;
-  } else {
+  if (!u.is_admin) {
     const botSection = $("#section-bot-defaults");
     if (botSection) botSection.hidden = true;
     const ovSection = $("#section-overrides");
     if (ovSection) ovSection.hidden = true;
   }
-});
-
-const logoutBtn = $("#nav-logout");
-if (logoutBtn) logoutBtn.addEventListener("click", async () => {
-  await fetch("/auth/logout", { method: "POST" });
-  location.replace("/login");
 });
 
 function escapeHtml(s) {

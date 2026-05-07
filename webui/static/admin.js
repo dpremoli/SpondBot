@@ -1,5 +1,5 @@
 (() => {
-  // Auth guard
+  // Auth guard (nav handled by nav.js)
   let currentUser = null;
   fetch('/auth/me').then(r => {
     if (!r.ok) { location.replace('/login'); return null; }
@@ -8,13 +8,7 @@
     if (!u) return;
     if (!u.is_admin) { location.replace('/'); return; }
     currentUser = u;
-    document.getElementById('nav-user').textContent = u.username;
     init();
-  });
-
-  document.getElementById('nav-logout').addEventListener('click', async () => {
-    await fetch('/auth/logout', { method: 'POST' });
-    location.replace('/login');
   });
 
   // ---- Tab switching ----
@@ -178,17 +172,18 @@
       const card = document.createElement('div');
       card.className = 'card';
       const dot = s.last_error ? '🔴' : s.logged_in ? '🟢' : '⚪';
+      const noSpond = !s.logged_in && !s.last_tick_ts && !s.last_error;
       card.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
-          <strong>${dot} User ${esc(s.user_id.slice(0, 8))}…</strong>
+          <strong>${dot} ${esc(s.username || s.user_id)}</strong>
           <span class="muted" style="font-size:.78rem">${s.dry_run ? 'DRY RUN' : ''}</span>
         </div>
         <div class="bot-stat-grid">
+          <span class="muted">Status</span><span>${noSpond ? '<span class="muted">no Spond credentials</span>' : s.last_error ? `<span class="err-text">${esc(s.last_error)}</span>` : 'ok'}</span>
           <span class="muted">Last tick</span><span>${s.last_tick_ts ? new Date(s.last_tick_ts * 1000).toLocaleTimeString() : '—'}</span>
           <span class="muted">Next event</span><span>${s.next_event_heading || '—'}</span>
           <span class="muted">Accepted</span><span>${s.accepted_count}</span>
           <span class="muted">Failed</span><span>${s.failed_count}</span>
-          ${s.last_error ? `<span class="muted">Error</span><span class="err-text">${esc(s.last_error)}</span>` : ''}
         </div>`;
       grid.appendChild(card);
     });

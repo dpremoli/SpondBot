@@ -10,7 +10,9 @@
   --ok: #4ade80;
   --warn: #fbbf24;
   --err: #f87171;
-  --radius: 8px;
+  --radius: 12px;
+  --shadow-1: 0 1px 3px rgba(0,0,0,.5), 0 1px 2px rgba(0,0,0,.7);
+  --shadow-2: 0 3px 8px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.6);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -53,6 +55,7 @@ h2 { margin-top: 0; font-size: 1rem; }
   border-radius: var(--radius);
   padding: 1.1rem 1.35rem;
   margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-1);
 }
 .card-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -74,11 +77,13 @@ input:focus, textarea:focus, select:focus {
 }
 button {
   background: var(--accent); color: #fff; border: 0;
-  padding: .45rem 1rem; border-radius: 5px; cursor: pointer;
+  padding: .45rem 1.1rem; border-radius: 99px; cursor: pointer;
   font: inherit; font-size: .88rem; font-weight: 500;
-  transition: filter .15s, background .15s;
+  letter-spacing: .01em;
+  transition: filter .15s, background .15s, box-shadow .15s;
 }
-button.small { padding: .2rem .55rem; font-size: .78rem; }
+button:hover { box-shadow: var(--shadow-1); }
+button.small { padding: .22rem .65rem; font-size: .78rem; border-radius: 99px; }
 .td-actions { display: flex; gap: .35rem; align-items: center; white-space: nowrap; }
 button:hover { filter: brightness(1.12); }
 button.ghost {
@@ -97,9 +102,10 @@ button.ghost:hover { color: var(--fg); border-color: var(--fg); filter: none; }
   border: 1px solid var(--border); border-radius: var(--radius);
   margin-bottom: .5rem; background: var(--card);
   overflow: hidden;
-  transition: border-color .15s;
+  box-shadow: var(--shadow-1);
+  transition: border-color .15s, box-shadow .15s;
 }
-.group:hover { border-color: #353b48; }
+.group:hover { border-color: #353b48; box-shadow: var(--shadow-2); }
 .group-header {
   display: grid;
   grid-template-columns: auto 1fr auto auto auto;
@@ -194,6 +200,7 @@ tr.clickable:hover td { background: #1a1e26; }
   width: min(760px, 95vw);
   max-height: 82vh;
   overflow-y: auto;
+  box-shadow: var(--shadow-2);
 }
 .modal-header {
   display: flex; justify-content: space-between; align-items: flex-start;
@@ -606,30 +613,46 @@ tr.selected-row > td:first-child {
 .bottom-nav {
   display: none;
   position: fixed; bottom: 0; left: 0; right: 0;
-  height: 60px;
+  height: 64px;
   background: var(--card);
   border-top: 1px solid var(--border);
+  box-shadow: 0 -2px 8px rgba(0,0,0,.4);
   z-index: 20;
   justify-content: space-around; align-items: stretch;
 }
 .bottom-nav-item {
   flex: 1;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: .1rem;
+  gap: .15rem;
   color: var(--muted); text-decoration: none;
-  font-size: .65rem; font-weight: 500;
+  font-size: .62rem; font-weight: 500; letter-spacing: .02em;
   padding: .4rem 0;
   transition: color .15s;
+  position: relative; overflow: hidden;
 }
 .bottom-nav-item--active { color: var(--accent); }
+.bottom-nav-item--active .bottom-nav-icon::after {
+  content: ""; position: absolute;
+  top: 4px; left: 50%; transform: translateX(-50%);
+  width: 32px; height: 32px; border-radius: 99px;
+  background: rgba(79,140,255,.15);
+}
 .bottom-nav-item:hover { color: var(--fg); }
-.bottom-nav-icon { font-size: 1.2rem; line-height: 1; }
+.bottom-nav-icon { font-size: 1.25rem; line-height: 1; position: relative; }
+.bottom-nav-item--logout {
+  background: transparent; border: 0;
+  color: var(--muted); font-size: .65rem; font-weight: 500;
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: .1rem;
+  padding: .4rem 0; cursor: pointer; transition: color .15s;
+}
+.bottom-nav-item--logout:hover { color: var(--err); filter: none; }
 
 @media (max-width: 699px) {
   .bottom-nav { display: flex; }
-  body { padding-bottom: 60px; }
-  .top-nav .nav-user,
-  .top-nav #nav-logout { display: none; }
+  body { padding-bottom: 64px; }
+  /* Hide entire top nav on mobile — bottom nav replaces it */
+  header { display: none; }
 
   /* ── Compact toolbar ── */
   .toolbar { gap: .35rem; }
