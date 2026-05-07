@@ -87,21 +87,48 @@ header {
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 10;
 }
-header nav {
-  max-width: 980px; margin: 0 auto; padding: .65rem 1.25rem;
-  display: flex; gap: 1.75rem; flex-wrap: wrap; align-items: center;
+/* ── App shell layout ── */
+.app-wrap {
+  max-width: 1100px; margin: 0 auto; padding: 0 1.25rem;
 }
-header nav a {
-  color: var(--muted); text-decoration: none; font-weight: 500;
-  padding: .3rem 0; font-size: .9rem; letter-spacing: .01em;
-  transition: color .15s;
+.app-header-inner {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: .6rem 0;
 }
-header nav a.active, header nav a:hover { color: var(--fg); }
-header nav a.active { border-bottom: 2px solid var(--accent); }
-.nav-spacer { flex: 1; }
+.app-brand {
+  font-weight: 700; font-size: .95rem; color: var(--fg);
+  text-decoration: none; letter-spacing: -.01em;
+}
+.header-right {
+  display: flex; align-items: center; gap: .65rem;
+}
+.app-body {
+  display: flex; gap: 1.5rem; align-items: flex-start;
+  padding: 1.5rem 0 3rem;
+}
+.left-nav {
+  width: 148px; flex-shrink: 0;
+  position: sticky; top: 4rem;
+}
+.ln-item {
+  display: flex; align-items: center; gap: .45rem;
+  padding: .48rem .75rem; border-radius: 8px;
+  font-size: .88rem; font-weight: 500;
+  color: var(--muted); text-decoration: none;
+  transition: color .15s, background .15s;
+  margin-bottom: .1rem;
+  background: none; border: none; cursor: pointer; width: 100%;
+  font: inherit; letter-spacing: .01em;
+}
+.ln-item:hover { color: var(--fg); background: var(--hover-bg); filter: none; box-shadow: none; }
+.ln-item--active { color: var(--accent) !important; background: var(--accent-bg) !important; }
+main { flex: 1; min-width: 0; padding: 1.5rem 0; }
 .nav-version { color: var(--muted); font-size: .73rem; opacity: .55; }
 
-main { max-width: 980px; margin: 0 auto; padding: 1.75rem 1.25rem; }
+@media (max-width: 700px) {
+  .left-nav { display: none; }
+  main { padding: 1.25rem 0; }
+}
 h1 { margin: 0 0 .2rem; font-size: 1.5rem; letter-spacing: -.02em; }
 h2 { margin-top: 0; font-size: 1rem; }
 .sub, .muted { color: var(--muted); }
@@ -690,22 +717,17 @@ tr.selected-row > td:first-child {
 .nav-account-menu a.active { border-bottom: none; font-weight: 600; }
 .nav-account-divider { height: 1px; background: var(--border); margin: .3rem 0; }
 
-/* ── Admin panel ── */
-.admin-layout {
-  display: flex; gap: 1.5rem; align-items: flex-start;
+/* ── Admin panel tabs (horizontal) ── */
+.tab-bar {
+  display: flex; gap: .3rem; margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border); padding-bottom: .5rem;
 }
-.admin-sidebar {
-  display: flex; flex-direction: column; gap: .2rem;
-  min-width: 120px; flex-shrink: 0;
-  position: sticky; top: 5rem;
-}
-.admin-content { flex: 1; min-width: 0; }
 .tab-btn {
   background: transparent; color: var(--muted);
   border: 1px solid transparent;
-  padding: .45rem .9rem; border-radius: 7px;
+  padding: .4rem .9rem; border-radius: 7px;
   font-size: .88rem; transition: all .15s;
-  filter: none; text-align: left; width: 100%; cursor: pointer;
+  filter: none; text-align: center; cursor: pointer;
 }
 .tab-btn:hover { color: var(--fg); filter: none; background: var(--hover-bg); }
 .tab-btn--active {
@@ -747,11 +769,6 @@ tr.selected-row > td:first-child {
   margin-top: .15rem; font-weight: 500;
 }
 
-@media (max-width: 560px) {
-  .admin-layout { flex-direction: column; }
-  .admin-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; position: static; }
-  .tab-btn { width: auto; }
-}
 
 /* ── Bottom nav (mobile) ── */
 .bottom-nav {

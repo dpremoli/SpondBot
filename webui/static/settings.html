@@ -10,110 +10,120 @@
 </head>
 <body>
 <header>
-  <nav id="top-nav" class="top-nav">
-    <a href="/">Events</a>
-    <a href="/admin" id="nav-admin" hidden>Dashboard</a>
-    <span class="nav-spacer"></span>
-    <span id="nav-version" class="nav-version"></span>
-    <div class="nav-account" id="nav-account">
-      <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
-      <div class="nav-account-menu" id="nav-account-menu" hidden>
-        <a href="/logs" class="nav-account-item">Logs</a>
-        <a href="/settings" class="nav-account-item active">Settings</a>
-        <div class="nav-account-divider"></div>
-        <button class="nav-account-item nav-account-item--logout" id="nav-logout">Log out</button>
+  <div class="app-wrap">
+    <div class="app-header-inner">
+      <a href="/" class="app-brand">SpondBot</a>
+      <div class="header-right">
+        <button class="ghost small theme-btn" id="theme-btn">🌙</button>
+        <span id="nav-version" class="nav-version"></span>
+        <div class="nav-account" id="nav-account">
+          <button class="ghost small nav-account-btn" id="nav-account-btn"><span class="nav-user"></span><span class="nav-account-caret">▾</span></button>
+          <div class="nav-account-menu" id="nav-account-menu" hidden></div>
+        </div>
       </div>
     </div>
-  </nav>
+  </div>
 </header>
-<main>
-  <h1>Settings</h1>
 
-  <section class="card">
-    <h2>Spond Account</h2>
-    <p class="muted">Credentials used by the bot to log in to Spond.</p>
-    <form id="creds-form">
-      <label>Email
-        <input type="email" id="username" required autocomplete="username" />
-      </label>
-      <label>Password
-        <input type="password" id="password" autocomplete="current-password" placeholder="Leave blank to keep current" />
-      </label>
-      <label>Group IDs (one per line — leave blank for all groups)
-        <textarea id="group_ids" rows="3" placeholder="C9DC791FFE63D7914D6952BE10D97B46"></textarea>
-      </label>
-      <div class="form-footer">
-        <button type="submit">Save &amp; verify</button>
-        <span id="creds-status" class="status"></span>
-      </div>
-    </form>
-  </section>
+<div class="app-wrap">
+  <div class="app-body">
+    <aside class="left-nav" id="left-nav" hidden>
+      <a href="/" class="ln-item" id="ln-events">📅 Events</a>
+      <a href="/admin" class="ln-item" id="ln-dashboard">🛡 Dashboard</a>
+      <a href="/logs" class="ln-item" id="ln-logs">📋 Logs</a>
+      <a href="/settings" class="ln-item" id="ln-settings">⚙️ Settings</a>
+    </aside>
 
-  <section class="card" id="section-bot-defaults">
-    <h2>Bot Defaults</h2>
-    <p class="muted">Applied to every selected event unless overridden below.</p>
-    <form id="defaults-form">
-      <label>Initial delay after invite opens (seconds)
-        <input type="number" step="0.05" min="0" id="initial_delay" required />
-      </label>
-      <label>Retry count (how many extra attempts if the first fails)
-        <input type="number" step="1" min="0" id="retry_count" required />
-      </label>
-      <label>Retry interval (seconds)
-        <input type="number" step="0.05" min="0.05" id="retry_interval" required />
-      </label>
-      <label>Response
-        <select id="response">
-          <option value="accepted">accepted</option>
-          <option value="declined">declined</option>
-          <option value="unconfirmed">unconfirmed</option>
-        </select>
-      </label>
-      <label>Group events by (default on the Events page)
-        <select id="group_by">
-          <option value="heading">heading (recurring series)</option>
-          <option value="day">day</option>
-          <option value="week">week</option>
-          <option value="year">year</option>
-        </select>
-      </label>
-      <label class="inline">
-        <input type="checkbox" id="dry_run" />
-        Dry-run mode — log what would happen but don't actually respond
-      </label>
-      <div class="form-footer">
-        <button type="submit">Save defaults</button>
-        <span id="defaults-status" class="status"></span>
-      </div>
-    </form>
-  </section>
+    <main>
+      <h1>Settings</h1>
 
-  <section class="card" id="section-overrides">
-    <h2>Per-event overrides</h2>
-    <p class="muted">Anything set here takes precedence over the defaults for that specific event.</p>
-    <div id="overrides"></div>
-  </section>
+      <section class="card">
+        <h2>Spond Account</h2>
+        <p class="muted">Credentials used by the bot to log in to Spond.</p>
+        <form id="creds-form">
+          <label>Email
+            <input type="email" id="username" required autocomplete="username" />
+          </label>
+          <label>Password
+            <input type="password" id="password" autocomplete="current-password" placeholder="Leave blank to keep current" />
+          </label>
+          <label>Group IDs (one per line — leave blank for all groups)
+            <textarea id="group_ids" rows="3" placeholder="C9DC791FFE63D7914D6952BE10D97B46"></textarea>
+          </label>
+          <div class="form-footer">
+            <button type="submit">Save &amp; verify</button>
+            <span id="creds-status" class="status"></span>
+          </div>
+        </form>
+      </section>
 
-  <section class="card">
-    <h2>My Account</h2>
-    <p class="muted">Change your dashboard login password.</p>
-    <form id="pw-form">
-      <label>Current password
-        <input type="password" id="pw-current" required autocomplete="current-password" />
-      </label>
-      <label>New password <span class="muted">(min 8 characters)</span>
-        <input type="password" id="pw-new" required minlength="8" autocomplete="new-password" />
-      </label>
-      <label>Confirm new password
-        <input type="password" id="pw-confirm" required autocomplete="new-password" />
-      </label>
-      <div class="form-footer">
-        <button type="submit">Change password</button>
-        <span id="pw-status" class="status"></span>
-      </div>
-    </form>
-  </section>
-</main>
+      <section class="card" id="section-bot-defaults">
+        <h2>Bot Defaults</h2>
+        <p class="muted">Applied to every selected event unless overridden below.</p>
+        <form id="defaults-form">
+          <label>Initial delay after invite opens (seconds)
+            <input type="number" step="0.05" min="0" id="initial_delay" required />
+          </label>
+          <label>Retry count (how many extra attempts if the first fails)
+            <input type="number" step="1" min="0" id="retry_count" required />
+          </label>
+          <label>Retry interval (seconds)
+            <input type="number" step="0.05" min="0.05" id="retry_interval" required />
+          </label>
+          <label>Response
+            <select id="response">
+              <option value="accepted">accepted</option>
+              <option value="declined">declined</option>
+              <option value="unconfirmed">unconfirmed</option>
+            </select>
+          </label>
+          <label>Group events by (default on the Events page)
+            <select id="group_by">
+              <option value="heading">heading (recurring series)</option>
+              <option value="day">day</option>
+              <option value="week">week</option>
+              <option value="year">year</option>
+            </select>
+          </label>
+          <label class="inline">
+            <input type="checkbox" id="dry_run" />
+            Dry-run mode — log what would happen but don't actually respond
+          </label>
+          <div class="form-footer">
+            <button type="submit">Save defaults</button>
+            <span id="defaults-status" class="status"></span>
+          </div>
+        </form>
+      </section>
+
+      <section class="card" id="section-overrides">
+        <h2>Per-event overrides</h2>
+        <p class="muted">Anything set here takes precedence over the defaults for that specific event.</p>
+        <div id="overrides"></div>
+      </section>
+
+      <section class="card">
+        <h2>My Account</h2>
+        <p class="muted">Change your dashboard login password.</p>
+        <form id="pw-form">
+          <label>Current password
+            <input type="password" id="pw-current" required autocomplete="current-password" />
+          </label>
+          <label>New password <span class="muted">(min 8 characters)</span>
+            <input type="password" id="pw-new" required minlength="8" autocomplete="new-password" />
+          </label>
+          <label>Confirm new password
+            <input type="password" id="pw-confirm" required autocomplete="new-password" />
+          </label>
+          <div class="form-footer">
+            <button type="submit">Change password</button>
+            <span id="pw-status" class="status"></span>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+</div>
 
 <nav class="bottom-nav" id="bottom-nav">
   <a href="/" class="bottom-nav-item">
