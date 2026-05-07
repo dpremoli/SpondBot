@@ -23,7 +23,7 @@
     });
   }
 
-  // Inject theme button into nav
+  // Inject theme button into nav (before the account wrapper)
   const nav = document.querySelector("#top-nav");
   if (nav) {
     const btn = document.createElement("button");
@@ -32,9 +32,20 @@
     btn.textContent = currentlyDark ? "☀️" : "🌙";
     btn.title = currentlyDark ? "Switch to light mode" : "Switch to dark mode";
     btn.addEventListener("click", toggleTheme);
-    const logout = nav.querySelector("#nav-logout");
-    if (logout) nav.insertBefore(btn, logout);
+    const accountWrap = nav.querySelector("#nav-account");
+    if (accountWrap) nav.insertBefore(btn, accountWrap);
     else nav.appendChild(btn);
+  }
+
+  // ── Account dropdown ──────────────────────────────────────────────────────
+  const accountBtn = document.getElementById("nav-account-btn");
+  const accountMenu = document.getElementById("nav-account-menu");
+  if (accountBtn && accountMenu) {
+    accountBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      accountMenu.hidden = !accountMenu.hidden;
+    });
+    document.addEventListener("click", () => { accountMenu.hidden = true; });
   }
 
   // ── Pre-fill cache ────────────────────────────────────────────────────────
