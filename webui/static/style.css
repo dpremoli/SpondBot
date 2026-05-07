@@ -153,18 +153,42 @@ table.sessions input[type=checkbox] { width: auto; margin: 0; }
   display: flex; align-items: center; gap: .5rem;
   font-size: .85rem; color: var(--muted);
 }
+.status-refresh-btn { margin-left: auto; opacity: .6; }
+.status-refresh-btn:hover { opacity: 1; }
 .status-next-up { margin-top: .75rem; }
 .next-up-label {
   font-size: .72rem; font-weight: 600; letter-spacing: .06em;
   text-transform: uppercase; color: var(--muted); margin-bottom: .35rem;
 }
 .next-up-row {
-  display: flex; justify-content: space-between; align-items: baseline;
-  gap: 1rem; padding: .25rem 0;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 1rem; padding: .3rem 0;
   border-top: 1px solid var(--border); font-size: .87rem;
+  cursor: pointer; border-radius: 4px;
+  transition: background .12s;
 }
-.next-up-name { color: var(--fg); }
-.next-up-time { color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.next-up-row:hover { background: var(--card2); margin: 0 -.5rem; padding: .3rem .5rem; }
+.next-up-left { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.next-up-name { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-up-group { color: var(--muted); font-size: .75rem; }
+.next-up-right { display: flex; align-items: center; gap: .6rem; flex-shrink: 0; }
+.next-up-times { display: flex; flex-direction: column; align-items: flex-end; gap: .05rem; }
+.next-up-time { color: var(--fg); font-size: .85rem; white-space: nowrap; }
+.next-up-exact { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.next-up-accept { font-size: .75rem; padding: .2rem .55rem; opacity: .7; }
+.next-up-accept:hover { opacity: 1; }
+
+/* form footer (button + status on own line) */
+.form-footer { display: flex; align-items: center; gap: .6rem; margin-top: 1rem; }
+
+/* toolbar */
+.toolbar-sep { width: 1px; height: 1.4rem; background: var(--border); flex-shrink: 0; }
+.toolbar-select-label { gap: .3rem; }
+.toolbar-label-text { font-size: .78rem; color: var(--muted); }
+.toolbar-select-label select { margin-top: 0; padding: .28rem .5rem; width: auto; font-size: .82rem; }
+.toolbar-check-label { font-size: .82rem; gap: .3rem; }
+.toolbar-check-label input { width: auto; margin: 0; }
+.toolbar-icon-btn { font-size: 1rem; padding: .3rem .55rem; line-height: 1; }
 .dot {
   width: .6rem; height: .6rem; border-radius: 50%;
   background: var(--muted); display: inline-block;
@@ -689,7 +713,7 @@ tr.selected-row > td:first-child {
     gap: .1rem .4rem;
     cursor: pointer;
   }
-  .sessions tr.selected-row { border-left: 3px solid var(--accent); }
+  .sessions tr.selected-row { border-color: var(--accent); }
   .sessions td { padding: 0; border: 0; font-size: .85rem; display: flex; align-items: center; }
 
   /* Suppress data-label pseudo-elements in grid mode */
@@ -704,6 +728,7 @@ tr.selected-row > td:first-child {
   .sessions td[data-label="Invite opens"] {
     grid-area: invite;
     font-size: .78rem; color: var(--muted);
+    flex-direction: column; align-items: flex-start;
   }
   .sessions td[data-label="Status"] {
     grid-area: status;
@@ -735,15 +760,20 @@ tr.selected-row > td:first-child {
 }
 
 /* ── View toggle ── */
-.view-toggle { display: flex; gap: .25rem; }
+.view-toggle {
+  display: flex; gap: 0;
+  border: 1px solid var(--border); border-radius: 7px; overflow: hidden;
+}
 .view-btn {
   background: transparent; color: var(--muted);
-  border: 1px solid var(--border); padding: .3rem .7rem;
-  border-radius: 5px; font-size: .82rem; cursor: pointer;
-  transition: all .15s; filter: none;
+  border: 0; border-right: 1px solid var(--border);
+  padding: .3rem .75rem;
+  font-size: .82rem; cursor: pointer;
+  transition: background .15s, color .15s; filter: none;
 }
-.view-btn:hover { color: var(--fg); filter: none; }
-.view-btn--active { background: var(--card2); color: var(--fg); border-color: var(--accent); }
+.view-btn:last-child { border-right: 0; }
+.view-btn:hover { color: var(--fg); background: var(--card2); }
+.view-btn--active { background: var(--card2); color: var(--fg); }
 
 /* ── Calendar view ── */
 .cal-nav {

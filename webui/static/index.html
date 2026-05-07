@@ -37,6 +37,7 @@
       <span class="dot" id="status-dot"></span>
       <span id="status-text">loading…</span>
       <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
+      <button id="status-refresh" class="ghost small status-refresh-btn" title="Refresh now">↺</button>
     </div>
     <div id="status-next-up" class="status-next-up" hidden></div>
   </section>
@@ -47,9 +48,11 @@
       <div class="toolbar">
         <div class="view-toggle" role="group" aria-label="View">
           <button id="view-list" class="view-btn view-btn--active" title="List view">☰ List</button>
-          <button id="view-cal" class="view-btn" title="Calendar view">📅 Calendar</button>
+          <button id="view-cal" class="view-btn" title="Calendar view">📅 Cal</button>
         </div>
-        <label class="inline" id="group-by-label">Group by
+        <span class="toolbar-sep"></span>
+        <label class="inline toolbar-select-label" id="group-by-label">
+          <span class="toolbar-label-text">Group</span>
           <select id="group_by">
             <option value="heading">heading</option>
             <option value="day">day</option>
@@ -57,11 +60,12 @@
             <option value="year">year</option>
           </select>
         </label>
-        <label class="inline">
-          <input type="checkbox" id="show-past" /> show past
+        <label class="inline toolbar-check-label">
+          <input type="checkbox" id="show-past" /> <span>Past</span>
         </label>
-        <button id="refresh">Refresh</button>
-        <button id="save-selection">Save selection</button>
+        <span class="toolbar-sep"></span>
+        <button id="refresh" class="ghost toolbar-icon-btn" title="Refresh events">↺</button>
+        <button id="save-selection" class="ghost">Save</button>
         <span id="events-status" class="status"></span>
       </div>
     </div>

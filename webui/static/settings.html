@@ -36,8 +36,10 @@
       <label>Group IDs (one per line — leave blank for all groups)
         <textarea id="group_ids" rows="3" placeholder="C9DC791FFE63D7914D6952BE10D97B46"></textarea>
       </label>
-      <button type="submit">Save &amp; verify</button>
-      <span id="creds-status" class="status"></span>
+      <div class="form-footer">
+        <button type="submit">Save &amp; verify</button>
+        <span id="creds-status" class="status"></span>
+      </div>
     </form>
   </section>
 
@@ -73,8 +75,10 @@
         <input type="checkbox" id="dry_run" />
         Dry-run mode — log what would happen but don't actually respond
       </label>
-      <button type="submit">Save defaults</button>
-      <span id="defaults-status" class="status"></span>
+      <div class="form-footer">
+        <button type="submit">Save defaults</button>
+        <span id="defaults-status" class="status"></span>
+      </div>
     </form>
   </section>
 
@@ -97,8 +101,10 @@
       <label>Confirm new password
         <input type="password" id="pw-confirm" required autocomplete="new-password" />
       </label>
-      <button type="submit">Change password</button>
-      <span id="pw-status" class="status"></span>
+      <div class="form-footer">
+        <button type="submit">Change password</button>
+        <span id="pw-status" class="status"></span>
+      </div>
     </form>
   </section>
 </main>
