@@ -5,19 +5,39 @@ async function api(path, opts = {}) {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
+  if (res.status === 401) { location.replace("/login"); throw new Error("Unauthorized"); }
   if (!res.ok) {
     let detail;
-    try {
-      const json = await res.json();
-      detail = json.detail || res.statusText;
-    } catch {
-      detail = await res.text();
-    }
+    try { const json = await res.json(); detail = json.detail || res.statusText; }
+    catch { detail = await res.text(); }
     throw new Error(detail);
   }
   return res.json();
 }
 
+// ---- Auth/nav init ----
+fetch("/auth/me").then(r => {
+  if (!r.ok) { location.replace("/login"); return null; }
+  return r.json();
+}).then(u => {
+  if (!u) return;
+  const navUser = $("#nav-user");
+  if (navUser) navUser.textContent = u.username;
+  if (u.is_admin) {
+    const adminLink = $("#nav-admin");
+    if (adminLink) adminLink.hidden = false;
+    const bottomAdmin = $("#bottom-admin");
+    if (bottomAdmin) bottomAdmin.hidden = false;
+  }
+});
+
+const logoutBtn = $("#nav-logout");
+if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+  await fetch("/auth/logout", { method: "POST" });
+  location.replace("/login");
+});
+
+// ---- Utilities ----
 function fmt(ts) {
   if (!ts) return "—";
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
@@ -57,7 +77,6 @@ function groupKey(e, mode) {
     if (!t || isNaN(t.getTime())) return "unknown";
     if (mode === "day") return t.toISOString().slice(0, 10);
     if (mode === "year") return String(t.getFullYear());
-    // ISO week
     const d = new Date(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()));
     const day = d.getUTCDay() || 7;
     d.setUTCDate(d.getUTCDate() + 4 - day);
@@ -87,8 +106,6 @@ let selectedSet = new Set();
 let groupByMode = "heading";
 let showPast = false;
 
-// Keyed by groupKey string → { countEl, selectAllEl, selectableSessions }
-// Populated by renderGroup(); used for cheap in-place header updates.
 const _groupHeaderRefs = new Map();
 
 function patchGroupHeader(key) {
@@ -109,46 +126,11 @@ function patchGroupHeader(key) {
 
 async function loadConfig() {
   const cfg = await api("/api/config");
-  $("#username").value = cfg.username || "";
-  $("#group_ids").value = (cfg.group_ids || []).join("\n");
-  if (cfg.has_password) {
-    $("#password").placeholder = "(saved — leave blank to keep)";
-  }
   selectedSet = new Set(cfg.selected_event_ids || []);
   groupByMode = cfg.group_by || "heading";
   $("#group_by").value = groupByMode;
-  try {
-    showPast = localStorage.getItem("__show_past") === "true";
-  } catch {
-    showPast = false;
-  }
+  try { showPast = localStorage.getItem("__show_past") === "true"; } catch { showPast = false; }
   $("#show-past").checked = showPast;
-}
-
-async function saveCreds(ev) {
-  ev.preventDefault();
-  const status = $("#creds-status");
-  status.textContent = "Saving…";
-  status.className = "status";
-  const body = {
-    username: $("#username").value.trim(),
-    password: $("#password").value,
-    group_ids: $("#group_ids").value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
-  };
-  if (!body.password) {
-    status.textContent = "Enter password to re-verify";
-    status.className = "status err";
-    return;
-  }
-  try {
-    await api("/api/config", { method: "POST", body: JSON.stringify(body) });
-    status.textContent = "Verified";
-    status.className = "status ok";
-    await loadEvents();
-  } catch (e) {
-    status.textContent = e.message;
-    status.className = "status err";
-  }
 }
 
 async function loadEvents() {
@@ -175,7 +157,7 @@ async function manualRefresh() {
       if (ageSec < 900) {
         const ok = confirm(
           `Last refresh was ${Math.round(ageSec / 60)} min ago.\n` +
-            `Spond rate-limits aggressively — refresh anyway?`
+          `Spond rate-limits aggressively — refresh anyway?`
         );
         if (!ok) return;
       }
@@ -209,12 +191,7 @@ function renderGroups() {
   for (const e of events) {
     const k = groupKey(e, groupByMode);
     if (!groups.has(k)) {
-      groups.set(k, {
-        key: k,
-        label: groupLabel(e, groupByMode, k),
-        groupName: e.groupName || e.groupId || "",
-        sessions: [],
-      });
+      groups.set(k, { key: k, label: groupLabel(e, groupByMode, k), groupName: e.groupName || e.groupId || "", sessions: [] });
     }
     groups.get(k).sessions.push(e);
   }
@@ -226,9 +203,7 @@ function renderGroups() {
   });
 
   for (const g of sorted) {
-    g.sessions.sort(
-      (a, b) => new Date(a.startTimestamp || 0) - new Date(b.startTimestamp || 0)
-    );
+    g.sessions.sort((a, b) => new Date(a.startTimestamp || 0) - new Date(b.startTimestamp || 0));
     container.appendChild(renderGroup(g));
   }
 }
@@ -256,9 +231,7 @@ function renderGroup(g) {
     acceptedCount ? ` · ${acceptedCount} accepted` : ""
   }${waitlistedCount ? ` · ${waitlistedCount} waitlisted` : ""}</span>
     <label class="select-all" title="Select all future sessions">
-      <input type="checkbox" ${total > 0 && selectedCount === total ? "checked" : ""} ${
-    total === 0 ? "disabled" : ""
-  } />
+      <input type="checkbox" ${total > 0 && selectedCount === total ? "checked" : ""} ${total === 0 ? "disabled" : ""} />
       all
     </label>
   `;
@@ -267,7 +240,6 @@ function renderGroup(g) {
 
   if (selectedCount > 0 && selectedCount < total) selectAll.indeterminate = true;
 
-  // Store refs so patchGroupHeader() can update counts without re-rendering.
   _groupHeaderRefs.set(g.key, {
     countEl: header.querySelector(".group-count"),
     selectAllEl: selectAll,
@@ -287,11 +259,7 @@ function renderGroup(g) {
       <tr>
         <th></th>
         ${showName ? "<th>Event</th>" : ""}
-        <th>Invite opens</th>
-        <th>Starts</th>
-        <th>Ends</th>
-        <th>Status</th>
-        <th>Override</th>
+        <th>Invite opens</th><th>Starts</th><th>Ends</th><th>Status</th><th>Override</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -321,7 +289,7 @@ function renderGroup(g) {
   return wrap;
 }
 
-function renderSession(s, groupKey) {
+function renderSession(s, gKey) {
   const tr = document.createElement("tr");
   tr.classList.add("clickable");
   tr.title = "Click to see bot activity for this event";
@@ -336,26 +304,20 @@ function renderSession(s, groupKey) {
   cb.type = "checkbox";
   cb.checked = s.selected;
   cb.disabled = past;
-  cb.addEventListener("change", () => {
-    s.selected = cb.checked;
-    if (cb.checked) selectedSet.add(s.id);
-    else selectedSet.delete(s.id);
-    patchGroupHeader(groupKey);
-  });
   if (s.selected) tr.classList.add("selected-row");
   cb.addEventListener("click", (ev) => ev.stopPropagation());
   cb.addEventListener("change", () => {
-    if (cb.checked) tr.classList.add("selected-row");
-    else tr.classList.remove("selected-row");
+    s.selected = cb.checked;
+    if (cb.checked) { selectedSet.add(s.id); tr.classList.add("selected-row"); }
+    else { selectedSet.delete(s.id); tr.classList.remove("selected-row"); }
+    patchGroupHeader(gKey);
   });
   const tdCb = document.createElement("td");
   tdCb.appendChild(cb);
 
   const tdInvite = document.createElement("td");
   if (s.inviteTime) {
-    const abs = fmt(s.inviteTime);
-    const rel = fmtRel(s.inviteTime);
-    tdInvite.innerHTML = `${escapeHtml(abs)}<br/><small class="muted">${escapeHtml(rel)}</small>`;
+    tdInvite.innerHTML = `${escapeHtml(fmt(s.inviteTime))}<br/><small class="muted">${escapeHtml(fmtRel(s.inviteTime))}</small>`;
   } else {
     tdInvite.innerHTML = `<span class="muted">open now</span>`;
   }
@@ -368,14 +330,10 @@ function renderSession(s, groupKey) {
   const tdStatus = document.createElement("td");
   const [statusLabel, statusCls] = past
     ? ["past", "muted"]
-    : s.waitlisted
-    ? ["waitlisted", "waitlisted"]
-    : s.accepted
-    ? ["accepted", "accepted"]
-    : s.failed
-    ? ["failed", "failed"]
-    : isAvailable(s)
-    ? ["open", "open"]
+    : s.waitlisted ? ["waitlisted", "waitlisted"]
+    : s.accepted ? ["accepted", "accepted"]
+    : s.failed ? ["failed", "failed"]
+    : isAvailable(s) ? ["open", "open"]
     : ["scheduled", "scheduled"];
   tdStatus.innerHTML = `<span class="status-pill status-pill--${statusCls}">${statusLabel}</span>`;
 
@@ -401,6 +359,7 @@ function renderSession(s, groupKey) {
       });
       tdOv.appendChild(acceptBtn);
     }
+
     const refreshBtn = document.createElement("button");
     refreshBtn.className = "small ghost";
     refreshBtn.textContent = "↺";
@@ -408,14 +367,9 @@ function renderSession(s, groupKey) {
     refreshBtn.addEventListener("click", async (ev) => {
       ev.stopPropagation();
       refreshBtn.disabled = true;
-      try {
-        await api(`/api/events/${s.id}/refresh`, { method: "POST" });
-        await loadEvents();
-      } catch (e) {
-        refreshBtn.title = e.message;
-      } finally {
-        refreshBtn.disabled = false;
-      }
+      try { await api(`/api/events/${s.id}/refresh`, { method: "POST" }); await loadEvents(); }
+      catch (e) { refreshBtn.title = e.message; }
+      finally { refreshBtn.disabled = false; }
     });
     tdOv.appendChild(refreshBtn);
 
@@ -426,15 +380,10 @@ function renderSession(s, groupKey) {
     tdOv.appendChild(ovBtn);
   }
 
-  // Row click → event history modal (stopPropagation on checkbox to avoid conflict)
   tr.addEventListener("click", () => tlOpenEventModal(s.id, s.heading, {
-    startTimestamp: s.startTimestamp,
-    endTimestamp: s.endTimestamp,
-    inviteTime: s.inviteTime,
-    armed_ts: s.armed_ts,
-    accepted: s.accepted && !s.waitlisted,
-    waitlisted: s.waitlisted,
-    failed: s.failed,
+    startTimestamp: s.startTimestamp, endTimestamp: s.endTimestamp,
+    inviteTime: s.inviteTime, armed_ts: s.armed_ts,
+    accepted: s.accepted && !s.waitlisted, waitlisted: s.waitlisted, failed: s.failed,
   }));
 
   if (groupByMode !== "heading") {
@@ -450,21 +399,14 @@ function renderSession(s, groupKey) {
 async function openOverrideDialog(s) {
   const { effective, override } = await api(`/api/event-settings/${s.id}`);
   const base = override || {};
-  const initial = prompt(
-    `Override for "${s.heading}"\n(blank to inherit default)\n\nInitial delay (s) [${effective.initial_delay}]:`,
-    base.initial_delay ?? ""
-  );
+  const initial = prompt(`Override for "${s.heading}"\n(blank to inherit default)\n\nInitial delay (s) [${effective.initial_delay}]:`, base.initial_delay ?? "");
   if (initial === null) return;
   const count = prompt(`Retry count [${effective.retry_count}]:`, base.retry_count ?? "");
   if (count === null) return;
   const interval = prompt(`Retry interval (s) [${effective.retry_interval}]:`, base.retry_interval ?? "");
   if (interval === null) return;
-  const response = prompt(
-    `Response — accepted | declined | unconfirmed [${effective.response}]:`,
-    base.response ?? ""
-  );
+  const response = prompt(`Response — accepted | declined | unconfirmed [${effective.response}]:`, base.response ?? "");
   if (response === null) return;
-
   const body = {
     initial_delay: initial === "" ? null : parseFloat(initial),
     retry_count: count === "" ? null : parseInt(count, 10),
@@ -472,23 +414,15 @@ async function openOverrideDialog(s) {
     response: response === "" ? null : response.trim(),
   };
   try {
-    await api(`/api/event-settings/${s.id}`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    await api(`/api/event-settings/${s.id}`, { method: "POST", body: JSON.stringify(body) });
     await loadEvents();
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { alert(e.message); }
 }
 
 async function saveSelection() {
   const status = $("#events-status");
   try {
-    await api("/api/selection", {
-      method: "POST",
-      body: JSON.stringify({ event_ids: [...selectedSet] }),
-    });
+    await api("/api/selection", { method: "POST", body: JSON.stringify({ event_ids: [...selectedSet] }) });
     status.textContent = `Saved ${selectedSet.size} selected`;
     status.className = "status ok";
     await loadStatus();
@@ -504,9 +438,7 @@ async function loadStatus() {
   try {
     _lastStatus = await api("/api/status");
     renderStatus(_lastStatus);
-  } catch {
-    // status bar shouldn't throw
-  }
+  } catch { /* non-critical */ }
 }
 
 function renderStatus(s) {
@@ -519,7 +451,7 @@ function renderStatus(s) {
     text.textContent = s.last_error;
   } else if (!s.logged_in && s.last_tick_ts === null) {
     dot.className = "dot warn";
-    text.textContent = "not logged in";
+    text.textContent = "not logged in — configure Spond credentials in Settings";
   } else {
     dot.className = "dot ok";
     const last = s.last_tick_ts ? fmtRel(s.last_tick_ts) : "never";
@@ -546,38 +478,29 @@ function updateUpcomingBanner() {
   const banner = $("#upcoming-banner");
   const list = $("#upcoming-list");
   if (!banner || !list) return;
-
   const now = Date.now();
-  const WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-
+  const WINDOW_MS = 5 * 60 * 1000;
   const soon = cachedEvents.filter((e) => {
     if (!e.startTimestamp) return false;
     const start = new Date(e.startTimestamp).getTime();
     const delta = start - now;
-    return delta > -60_000 && delta <= WINDOW_MS; // up to 1 min after start
+    return delta > -60_000 && delta <= WINDOW_MS;
   });
-
-  if (soon.length === 0) {
-    banner.hidden = true;
-    return;
-  }
-
+  if (soon.length === 0) { banner.hidden = true; return; }
   banner.hidden = false;
   list.innerHTML = soon
     .sort((a, b) => new Date(a.startTimestamp) - new Date(b.startTimestamp))
     .map((e) => {
       const start = new Date(e.startTimestamp).getTime();
       const delta = (start - now) / 1000;
-      const countdown =
-        delta > 0
-          ? `<strong>${fmtCountdown(delta)}</strong>`
-          : `<strong class="started">started</strong>`;
+      const countdown = delta > 0
+        ? `<strong>${fmtCountdown(delta)}</strong>`
+        : `<strong class="started">started</strong>`;
       return `<span class="upcoming-event">${escapeHtml(e.heading || "—")} — ${countdown}</span>`;
     })
     .join("");
 }
 
-// Live ticker — updates countdowns every second without any extra API calls.
 setInterval(() => {
   if (_lastStatus) renderStatus(_lastStatus);
   updateUpcomingBanner();
@@ -589,7 +512,6 @@ function escapeHtml(s) {
   );
 }
 
-$("#creds-form").addEventListener("submit", saveCreds);
 $("#refresh").addEventListener("click", manualRefresh);
 $("#save-selection").addEventListener("click", saveSelection);
 
@@ -599,32 +521,18 @@ $("#group_by").addEventListener("change", async () => {
     const cur = await api("/api/settings");
     await api("/api/settings", {
       method: "POST",
-      body: JSON.stringify({
-        initial_delay: cur.defaults.initial_delay,
-        retry_count: cur.defaults.retry_count,
-        retry_interval: cur.defaults.retry_interval,
-        response: cur.defaults.response,
-        dry_run: cur.dry_run,
-        group_by: groupByMode,
-      }),
+      body: JSON.stringify({ ...cur.defaults, dry_run: cur.dry_run, group_by: groupByMode }),
     });
-  } catch (e) {
-    console.warn("group_by persist failed:", e.message);
-  }
+  } catch (e) { console.warn("group_by persist failed:", e.message); }
   renderGroups();
 });
 
 $("#show-past").addEventListener("change", () => {
   showPast = $("#show-past").checked;
-  try {
-    localStorage.setItem("__show_past", String(showPast));
-  } catch {
-    // localStorage might not be available
-  }
+  try { localStorage.setItem("__show_past", String(showPast)); } catch { /* ok */ }
   renderGroups();
 });
 
-// Event history modal close handlers
 (function () {
   const modal = document.querySelector("#event-modal");
   if (!modal) return;

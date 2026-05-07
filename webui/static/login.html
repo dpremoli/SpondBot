@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SpondBot — Login</title>
+<link rel="icon" type="image/png" href="/static/logo.png" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="login-body">
+<div class="login-wrap">
+  <div class="card login-card">
+    <div class="login-logo">
+      <img src="/static/logo.png" alt="SpondBot" width="48" height="48" />
+      <h1>SpondBot</h1>
+    </div>
+    <form id="login-form" autocomplete="on">
+      <label>Username
+        <input type="text" id="username" name="username" required autocomplete="username" />
+      </label>
+      <label>Password
+        <div class="pw-wrap">
+          <input type="password" id="password" name="password" required autocomplete="current-password" />
+          <button type="button" id="pw-toggle" class="ghost small pw-toggle" aria-label="Show password">👁</button>
+        </div>
+      </label>
+      <button type="submit" id="login-btn" style="width:100%;margin-top:.5rem">Sign in</button>
+      <p id="login-error" class="login-error" hidden></p>
+    </form>
+  </div>
+</div>
+<script src="/static/login.js"></script>
+</body>
+</html>

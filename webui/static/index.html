@@ -9,12 +9,15 @@
 </head>
 <body>
 <header>
-  <nav>
+  <nav id="top-nav" class="top-nav">
     <a href="/" class="active">Events</a>
     <a href="/logs">Logs</a>
     <a href="/settings">Settings</a>
+    <a href="/admin" id="nav-admin" hidden>Admin</a>
     <span class="nav-spacer"></span>
+    <span id="nav-user" class="nav-user"></span>
     <span id="nav-version" class="nav-version"></span>
+    <button id="nav-logout" class="ghost small">Logout</button>
   </nav>
 </header>
 
@@ -36,23 +39,6 @@
 <main>
   <h1>SpondBot</h1>
   <p class="sub">Auto-accept Spond event invites the moment they open.</p>
-
-  <section class="card">
-    <h2>Credentials</h2>
-    <form id="creds-form">
-      <label>Username (email)
-        <input type="email" id="username" required autocomplete="username" />
-      </label>
-      <label>Password
-        <input type="password" id="password" required autocomplete="current-password" />
-      </label>
-      <label>Group IDs (one per line — leave blank for all groups)
-        <textarea id="group_ids" rows="3" placeholder="C9DC791FFE63D7914D6952BE10D97B46"></textarea>
-      </label>
-      <button type="submit">Save &amp; verify</button>
-      <span id="creds-status" class="status"></span>
-    </form>
-  </section>
 
   <section class="card">
     <div class="card-header">
@@ -78,7 +64,7 @@
   </section>
 </main>
 
-<!-- Per-event history modal (shared with logs page) -->
+<!-- Per-event history modal -->
 <div id="event-modal" class="modal-backdrop" hidden>
   <div class="modal">
     <div class="modal-header">
@@ -93,6 +79,25 @@
     <div id="modal-timeline" class="timeline timeline--modal"></div>
   </div>
 </div>
+
+<nav class="bottom-nav" id="bottom-nav">
+  <a href="/" class="bottom-nav-item bottom-nav-item--active">
+    <span class="bottom-nav-icon">📅</span>
+    <span>Events</span>
+  </a>
+  <a href="/logs" class="bottom-nav-item">
+    <span class="bottom-nav-icon">📋</span>
+    <span>Logs</span>
+  </a>
+  <a href="/settings" class="bottom-nav-item">
+    <span class="bottom-nav-icon">⚙️</span>
+    <span>Settings</span>
+  </a>
+  <a href="/admin" class="bottom-nav-item" id="bottom-admin" hidden>
+    <span class="bottom-nav-icon">👤</span>
+    <span>Admin</span>
+  </a>
+</nav>
 
 <script src="/static/timeline.js"></script>
 <script src="/static/app.js"></script>

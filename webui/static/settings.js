@@ -5,17 +5,42 @@ async function api(path, opts = {}) {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
+  if (res.status === 401) { location.replace("/login"); throw new Error("Unauthorized"); }
   if (!res.ok) {
     let detail;
-    try {
-      const json = await res.json();
-      detail = json.detail || res.statusText;
-    } catch {
-      detail = await res.text();
-    }
+    try { const json = await res.json(); detail = json.detail || res.statusText; }
+    catch { detail = await res.text(); }
     throw new Error(detail);
   }
   return res.json();
+}
+
+// ---- Auth/nav init ----
+fetch("/auth/me").then(r => {
+  if (!r.ok) { location.replace("/login"); return null; }
+  return r.json();
+}).then(u => {
+  if (!u) return;
+  const navUser = $("#nav-user");
+  if (navUser) navUser.textContent = u.username;
+  if (u.is_admin) {
+    const adminLink = $("#nav-admin");
+    if (adminLink) adminLink.hidden = false;
+    const bottomAdmin = $("#bottom-admin");
+    if (bottomAdmin) bottomAdmin.hidden = false;
+  }
+});
+
+const logoutBtn = $("#nav-logout");
+if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+  await fetch("/auth/logout", { method: "POST" });
+  location.replace("/login");
+});
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
 }
 
 function fmt(ts) {
@@ -24,12 +49,40 @@ function fmt(ts) {
   return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-  );
+// ---- Spond credentials ----
+async function loadCreds() {
+  const cfg = await api("/api/config");
+  $("#username").value = cfg.username || "";
+  $("#group_ids").value = (cfg.group_ids || []).join("\n");
+  if (cfg.has_password) {
+    $("#password").placeholder = "(saved — leave blank to keep)";
+  }
 }
 
+async function saveCreds(ev) {
+  ev.preventDefault();
+  const status = $("#creds-status");
+  status.textContent = "Saving…";
+  status.className = "status";
+  const pw = $("#password").value;
+  const body = {
+    username: $("#username").value.trim(),
+    password: pw,
+    group_ids: $("#group_ids").value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+  };
+  if (!body.username) { status.textContent = "Username required"; status.className = "status err"; return; }
+  try {
+    await api("/api/config", { method: "POST", body: JSON.stringify(body) });
+    status.textContent = pw ? "Verified & saved" : "Saved";
+    status.className = "status ok";
+    if (pw) { $("#password").value = ""; $("#password").placeholder = "(saved — leave blank to keep)"; }
+  } catch (e) {
+    status.textContent = e.message;
+    status.className = "status err";
+  }
+}
+
+// ---- Bot defaults ----
 async function loadDefaults() {
   const { defaults, dry_run, group_by } = await api("/api/settings");
   $("#initial_delay").value = defaults.initial_delay;
@@ -61,6 +114,7 @@ async function saveDefaults(ev) {
   }
 }
 
+// ---- Per-event overrides ----
 async function loadOverrides() {
   const container = $("#overrides");
   container.innerHTML = "";
@@ -106,15 +160,50 @@ async function loadOverrides() {
   container.appendChild(tbl);
 }
 
+// ---- Change password ----
+async function changePassword(ev) {
+  ev.preventDefault();
+  const status = $("#pw-status");
+  const newPw = $("#pw-new").value;
+  const confirm = $("#pw-confirm").value;
+  if (newPw !== confirm) {
+    status.textContent = "New passwords do not match.";
+    status.className = "status err";
+    return;
+  }
+  status.textContent = "Saving…";
+  status.className = "status";
+  try {
+    await api("/auth/me/password", {
+      method: "PATCH",
+      body: JSON.stringify({ current_password: $("#pw-current").value, new_password: newPw }),
+    });
+    status.textContent = "Password changed.";
+    status.className = "status ok";
+    $("#pw-current").value = "";
+    $("#pw-new").value = "";
+    $("#pw-confirm").value = "";
+  } catch (e) {
+    status.textContent = e.message;
+    status.className = "status err";
+  }
+}
+
+// ---- Version ----
 async function loadVersion() {
   try {
     const s = await api("/api/status");
-    const vEl = document.querySelector("#nav-version");
+    const vEl = $("#nav-version");
     if (vEl && s.version) vEl.textContent = `v${s.version}`;
   } catch { /* non-critical */ }
 }
 
+// ---- Wire up ----
+$("#creds-form").addEventListener("submit", saveCreds);
 $("#defaults-form").addEventListener("submit", saveDefaults);
+$("#pw-form").addEventListener("submit", changePassword);
+
+loadCreds().catch(() => {});
 loadDefaults().catch(() => {});
 loadOverrides().catch(() => {});
 loadVersion();

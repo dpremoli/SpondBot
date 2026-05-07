@@ -7,7 +7,6 @@ import base64
 import json
 import logging
 import os
-import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,11 +14,28 @@ from typing import Any
 
 import aiohttp
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from spond import AuthenticationError, spond
+from webui.auth import (
+    COOKIE_KWARGS,
+    create_access_token,
+    get_admin_user,
+    get_current_user,
+)
+from webui.users import (
+    create_user,
+    delete_user,
+    get_user_by_username,
+    load_users,
+    update_user,
+    verify_password,
+)
 
 VERSION = "0.6.0"
 
@@ -31,51 +47,28 @@ log = logging.getLogger("spondbot")
 
 DATA_DIR = Path(os.environ.get("SPONDBOT_DATA", "./data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_PATH = DATA_DIR / "config.json"
-HISTORY_PATH = DATA_DIR / "history.jsonl"
 KEY_PATH = DATA_DIR / ".key"
-ACCEPTED_PATH = DATA_DIR / "accepted_ids.json"
-FAILED_PATH = DATA_DIR / "failed_ids.json"
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Poll cadence (seconds). Deliberately long — the actual auto-accept runs off a
-# local timer scheduled at tick time, so we don't need to poll frequently just
-# to know when to fire. Polling is only for discovering *new* scheduled events
-# or reflecting selection changes. Env var lets you tune without rebuilding.
-POLL_INTERVAL = int(os.environ.get("SPONDBOT_POLL_INTERVAL", "900"))  # 15 min
-# Tighten (but don't eliminate) polling when there's an event arming soon.
-POLL_INTERVAL_NEAR_FIRE = int(
-    os.environ.get("SPONDBOT_POLL_INTERVAL_NEAR_FIRE", "120")
-)
-# "Soon" window — if any armed accept is within this many seconds, use the
-# tighter interval above.
+POLL_INTERVAL = int(os.environ.get("SPONDBOT_POLL_INTERVAL", "900"))
+POLL_INTERVAL_NEAR_FIRE = int(os.environ.get("SPONDBOT_POLL_INTERVAL_NEAR_FIRE", "120"))
 NEAR_FIRE_WINDOW = 300
-
-# Manual /api/refresh is throttled to this many seconds.
-MANUAL_REFRESH_MIN_INTERVAL = int(
-    os.environ.get("SPONDBOT_MANUAL_REFRESH_MIN", "30")
-)
+MANUAL_REFRESH_MIN_INTERVAL = int(os.environ.get("SPONDBOT_MANUAL_REFRESH_MIN", "30"))
 
 DEFAULT_SETTINGS = {
     "initial_delay": 0.3,
     "retry_count": 10,
     "retry_interval": 0.3,
-    "response": "accepted",  # accepted | declined | unconfirmed
+    "response": "accepted",
 }
 
 
 # ---------- password-at-rest encryption ----------
 
 def _load_or_create_key() -> bytes:
-    """Load or create the Fernet key used to encrypt the Spond password.
-
-    Env var `SPONDBOT_SECRET` (any string) overrides the on-disk key — useful
-    when you want the key to live somewhere other than the data volume.
-    """
     env = os.environ.get("SPONDBOT_SECRET")
     if env:
-        # Derive a 32-byte key from the passphrase.
         import hashlib
         raw = hashlib.sha256(env.encode("utf-8")).digest()
         return base64.urlsafe_b64encode(raw)
@@ -103,7 +96,6 @@ def decrypt_password(stored: str) -> str:
     if not stored:
         return ""
     if not stored.startswith("enc:"):
-        # legacy plaintext — migrate on next save
         return stored
     try:
         return _fernet.decrypt(stored[4:].encode("ascii")).decode("utf-8")
@@ -112,20 +104,40 @@ def decrypt_password(stored: str) -> str:
         return ""
 
 
+# ---------- per-user data paths ----------
+
+def user_data_dir(user_id: str) -> Path:
+    d = DATA_DIR / "users" / user_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _config_path(user_id: str) -> Path:
+    return user_data_dir(user_id) / "config.json"
+
+
+def _history_path(user_id: str) -> Path:
+    return user_data_dir(user_id) / "history.jsonl"
+
+
+def _accepted_path(user_id: str) -> Path:
+    return user_data_dir(user_id) / "accepted_ids.json"
+
+
+def _failed_path(user_id: str) -> Path:
+    return user_data_dir(user_id) / "failed_ids.json"
+
+
 # ---------- config persistence ----------
 
-_config_cache: dict[str, Any] | None = None
+_config_cache: dict[str, dict[str, Any]] = {}  # user_id → config
 
 
-def load_config() -> dict[str, Any]:
-    """Return config with the password decrypted. Reads disk only once."""
-    global _config_cache
-    if _config_cache is not None:
-        return dict(_config_cache)
-    if CONFIG_PATH.exists():
-        cfg = json.loads(CONFIG_PATH.read_text())
-    else:
-        cfg = {}
+def load_config(user_id: str) -> dict[str, Any]:
+    if user_id in _config_cache:
+        return dict(_config_cache[user_id])
+    path = _config_path(user_id)
+    cfg = json.loads(path.read_text()) if path.exists() else {}
     cfg.setdefault("username", "")
     cfg["password"] = decrypt_password(cfg.get("password", ""))
     cfg.setdefault("group_ids", [])
@@ -133,22 +145,21 @@ def load_config() -> dict[str, Any]:
     cfg.setdefault("defaults", dict(DEFAULT_SETTINGS))
     cfg.setdefault("event_settings", {})
     cfg.setdefault("dry_run", False)
-    cfg.setdefault("group_by", "heading")  # heading | day | week | year
-    _config_cache = dict(cfg)
+    cfg.setdefault("group_by", "heading")
+    _config_cache[user_id] = dict(cfg)
     return cfg
 
 
-def save_config(cfg: dict[str, Any]) -> None:
-    """Persist config; the password is encrypted before writing. Invalidates cache."""
-    global _config_cache
+def save_config(cfg: dict[str, Any], user_id: str) -> None:
     stored = dict(cfg)
     stored["password"] = encrypt_password(cfg.get("password", ""))
-    CONFIG_PATH.write_text(json.dumps(stored, indent=2))
+    path = _config_path(user_id)
+    path.write_text(json.dumps(stored, indent=2))
     try:
-        os.chmod(CONFIG_PATH, 0o600)
+        os.chmod(path, 0o600)
     except OSError:
         pass
-    _config_cache = dict(cfg)  # update cache with the just-saved values
+    _config_cache[user_id] = dict(cfg)
 
 
 def settings_for(cfg: dict[str, Any], event_id: str) -> dict[str, Any]:
@@ -158,9 +169,11 @@ def settings_for(cfg: dict[str, Any], event_id: str) -> dict[str, Any]:
     return merged
 
 
-def append_history(entry: dict[str, Any]) -> None:
+# ---------- history ----------
+
+def append_history(entry: dict[str, Any], user_id: str) -> None:
     entry = {"ts": time.time(), **entry}
-    with HISTORY_PATH.open("a") as f:
+    with _history_path(user_id).open("a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
@@ -174,15 +187,33 @@ def _parse_history_lines(lines: list[str]) -> list[dict[str, Any]]:
     return out
 
 
-def read_history(limit: int = 100, event_id: str | None = None) -> list[dict[str, Any]]:
-    if not HISTORY_PATH.exists():
+def read_history(
+    user_id: str, limit: int = 100, event_id: str | None = None
+) -> list[dict[str, Any]]:
+    path = _history_path(user_id)
+    if not path.exists():
         return []
-    entries = _parse_history_lines(HISTORY_PATH.read_text().splitlines())
+    entries = _parse_history_lines(path.read_text().splitlines())
     if event_id is not None:
         entries = [e for e in entries if e.get("event_id") == event_id]
     else:
         entries = entries[-limit:]
     return list(reversed(entries))
+
+
+def clear_history(user_id: str, event_id: str | None = None) -> int:
+    path = _history_path(user_id)
+    if not path.exists():
+        return 0
+    if event_id is None:
+        raw = path.read_text()
+        path.write_text("")
+        return sum(1 for ln in raw.splitlines() if ln.strip())
+    entries = _parse_history_lines(path.read_text().splitlines())
+    kept = [e for e in entries if e.get("event_id") != event_id]
+    removed = len(entries) - len(kept)
+    path.write_text("\n".join(json.dumps(e) for e in kept) + ("\n" if kept else ""))
+    return removed
 
 
 # ---------- persistent sets ----------
@@ -201,18 +232,17 @@ def _save_id_set(path: Path, ids: set[str]) -> None:
         log.warning("could not save %s: %s", path.name, exc)
 
 
-# ---------- scheduler state ----------
+# ---------- scheduler ----------
 
 class Scheduler:
-    """Polls Spond sparingly; schedules local timer tasks to auto-respond."""
-
-    def __init__(self) -> None:
+    def __init__(self, user_id: str) -> None:
+        self._user_id = user_id
         self._task: asyncio.Task | None = None
         self._scheduled: dict[str, asyncio.Task] = {}
-        self._scheduled_fire_ts: dict[str, float] = {}  # event_id -> epoch fire time
-        self._accepted: set[str] = _load_id_set(ACCEPTED_PATH)
+        self._scheduled_fire_ts: dict[str, float] = {}
+        self._accepted: set[str] = _load_id_set(_accepted_path(user_id))
         self._waitlisted: set[str] = set()
-        self._permanently_failed: set[str] = _load_id_set(FAILED_PATH)
+        self._permanently_failed: set[str] = _load_id_set(_failed_path(user_id))
         self._events_cache: list[dict] = []
         self._client: spond.Spond | None = None
         self._client_key: tuple[str, str] | None = None
@@ -221,8 +251,8 @@ class Scheduler:
         self._last_error: str | None = None
         self._last_tick_ts: float | None = None
         self._last_manual_refresh_ts: float = 0.0
-        self._cached_user_id: str | None = None  # profile ID
-        self._cached_member_ids: dict[str, str] = {}  # group_id → member_id
+        self._cached_user_id: str | None = None
+        self._cached_member_ids: dict[str, str] = {}
         self._wake_event = asyncio.Event()
 
     @property
@@ -234,7 +264,7 @@ class Scheduler:
         return self._last_tick_ts
 
     def status(self) -> dict[str, Any]:
-        cfg = load_config()
+        cfg = load_config(self._user_id)
         now = time.time()
         pending = [
             (eid, ts) for eid, ts in self._scheduled_fire_ts.items()
@@ -249,6 +279,7 @@ class Scheduler:
                     next_heading = e.get("heading")
                     break
         return {
+            "user_id": self._user_id,
             "last_tick_ts": self._last_tick_ts,
             "last_error": self._last_error,
             "events_cached": len(self._events_cache),
@@ -264,7 +295,6 @@ class Scheduler:
         }
 
     def _current_poll_interval(self) -> int:
-        """Tighter cadence if something is armed to fire within NEAR_FIRE_WINDOW."""
         now = time.time()
         for ts in self._scheduled_fire_ts.values():
             if 0 < ts - now <= NEAR_FIRE_WINDOW:
@@ -272,16 +302,9 @@ class Scheduler:
         return POLL_INTERVAL
 
     def wake(self) -> None:
-        """Nudge the loop so it ticks on the next iteration instead of sleeping."""
         self._wake_event.set()
 
     async def get_client(self, username: str, password: str) -> spond.Spond:
-        """Return a Spond client, reusing the existing one across calls.
-
-        Spond rate-limits aggressively; every `Spond(...)` call does a fresh
-        login. We share one instance keyed by (username, password) so its
-        cached `token` is reused for all subsequent API calls.
-        """
         async with self._client_lock:
             key = (username, password)
             if self._client is None or self._client_key != key:
@@ -337,7 +360,7 @@ class Scheduler:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                log.exception("scheduler tick failed")
+                log.exception("scheduler tick failed (user=%s)", self._user_id)
             interval = self._current_poll_interval()
             try:
                 await asyncio.wait_for(self._wake_event.wait(), timeout=interval)
@@ -346,12 +369,9 @@ class Scheduler:
             self._wake_event.clear()
 
     async def manual_refresh(self) -> None:
-        """Throttled manual tick — rate-limit guard against UI spam."""
         now = time.time()
         if now - self._last_manual_refresh_ts < MANUAL_REFRESH_MIN_INTERVAL:
-            remaining = int(
-                MANUAL_REFRESH_MIN_INTERVAL - (now - self._last_manual_refresh_ts)
-            )
+            remaining = int(MANUAL_REFRESH_MIN_INTERVAL - (now - self._last_manual_refresh_ts))
             raise HTTPException(
                 429,
                 f"Refresh throttled — try again in {remaining}s. "
@@ -363,7 +383,7 @@ class Scheduler:
             raise HTTPException(502, self._last_error)
 
     async def _tick(self) -> None:
-        cfg = load_config()
+        cfg = load_config(self._user_id)
         if not cfg.get("username") or not cfg.get("password"):
             return
         group_ids = cfg.get("group_ids") or []
@@ -382,7 +402,6 @@ class Scheduler:
                 *[_fetch_group(gid) for gid in sources],
                 return_exceptions=True,
             )
-            # Re-raise the first real exception so the existing handler catches it.
             for r in results:
                 if isinstance(r, Exception):
                     raise r
@@ -400,8 +419,7 @@ class Scheduler:
             self._last_tick_ts = time.time()
         except aiohttp.ContentTypeError as exc:
             self._last_error = (
-                f"Spond returned non-JSON ({exc.status}) — likely rate-limited. "
-                "Backing off."
+                f"Spond returned non-JSON ({exc.status}) — likely rate-limited. Backing off."
             )
             log.warning(self._last_error)
             await self.reset_client()
@@ -413,24 +431,19 @@ class Scheduler:
             return
         except Exception as exc:
             self._last_error = f"{type(exc).__name__}: {exc}"
-            log.exception("tick failure")
+            log.exception("tick failure (user=%s)", self._user_id)
             return
 
-        # Pre-fetch user profile and group member IDs so _accept_later uses the
-        # correct member ID (not profile ID) when calling change_response.
         if self._cached_user_id is None:
             try:
                 profile = await s.get_profile()
-                uid = (
-                    (profile.get("profile") or {}).get("id")
-                    or profile.get("id")
-                )
+                uid = (profile.get("profile") or {}).get("id") or profile.get("id")
                 if uid:
                     self._cached_user_id = uid
                 else:
-                    log.warning("could not resolve profile id from profile response")
+                    log.warning("could not resolve profile id (user=%s)", self._user_id)
             except Exception as exc:
-                log.warning("profile pre-fetch failed: %s", exc)
+                log.warning("profile pre-fetch failed (user=%s): %s", self._user_id, exc)
 
         profile_id = self._cached_user_id
         if profile_id:
@@ -444,18 +457,18 @@ class Scheduler:
                             if mpid == profile_id:
                                 self._cached_member_ids[gid] = m["id"]
                                 log.info(
-                                    "resolved member_id=%s in group %s (%s)",
-                                    m["id"], g.get("name", gid), gid,
+                                    "resolved member_id=%s in group %s (%s) for user=%s",
+                                    m["id"], g.get("name", gid), gid, self._user_id,
                                 )
                                 break
                         else:
                             log.warning(
                                 "profile_id=%s not found as member in group %s (%s) — "
-                                "will fall back to profile ID for change_response",
-                                profile_id, g.get("name", gid), gid,
+                                "will fall back to profile ID (user=%s)",
+                                profile_id, g.get("name", gid), gid, self._user_id,
                             )
             except Exception as exc:
-                log.warning("group member ID pre-fetch failed: %s", exc)
+                log.warning("group member ID pre-fetch failed (user=%s): %s", self._user_id, exc)
 
         now = time.time()
         for e in all_events:
@@ -464,20 +477,17 @@ class Scheduler:
                 continue
 
             group_id = ((e.get("recipients") or {}).get("group") or {}).get("id")
-            # Member ID is used by Spond's response lists; fall back to profile ID.
             uid = self._cached_member_ids.get(group_id) if group_id else None
             uid = uid or profile_id
 
-            # Sync in-memory state from the live Spond responses so restarts
-            # don't re-arm events the bot (or user) already responded to.
             responses = e.get("responses") or {}
             if uid and uid in (responses.get("acceptedIds") or []):
                 if eid not in self._accepted:
-                    log.info("sync: marking %s (%s) as accepted from Spond responses", eid, e.get("heading"))
+                    log.info("sync: marking %s (%s) as accepted from Spond", eid, e.get("heading"))
                 self._accepted.add(eid)
             if uid and uid in (responses.get("waitinglistIds") or []):
                 if eid not in self._waitlisted:
-                    log.info("sync: marking %s (%s) as waitlisted from Spond responses", eid, e.get("heading"))
+                    log.info("sync: marking %s (%s) as waitlisted from Spond", eid, e.get("heading"))
                 self._waitlisted.add(eid)
 
             if eid in self._accepted or eid in self._waitlisted or eid in self._permanently_failed:
@@ -489,24 +499,21 @@ class Scheduler:
             fire_ts = invite_ts + float(per["initial_delay"])
             delay = max(0.0, fire_ts - now)
             log.info(
-                "arming auto-%s for %s in %.1fs (%s) using member_id=%s group=%s%s",
+                "arming auto-%s for %s in %.1fs (%s) using member_id=%s group=%s%s (user=%s)",
                 per["response"], eid, delay, e.get("heading"), uid, group_id,
-                " [dry-run]" if cfg.get("dry_run") else "",
+                " [dry-run]" if cfg.get("dry_run") else "", self._user_id,
             )
             self._scheduled_fire_ts[eid] = fire_ts
             self._scheduled[eid] = asyncio.create_task(
                 self._accept_later(
                     cfg["username"], cfg["password"], eid, delay, per,
                     e.get("heading", ""), bool(cfg.get("dry_run")),
-                    uid,
-                    e.get("startTimestamp"),
+                    uid, e.get("startTimestamp"),
                 )
             )
-        # Persist after loop in case Spond sync added new accepted ids.
-        _save_id_set(ACCEPTED_PATH, self._accepted)
+        _save_id_set(_accepted_path(self._user_id), self._accepted)
 
     async def _tick_one(self, e: dict, cfg: dict) -> None:
-        """Re-evaluate scheduling for a single event (used by the per-event refresh endpoint)."""
         eid = e["id"]
         selected = set(cfg.get("selected_event_ids") or [])
         if eid not in selected:
@@ -523,7 +530,6 @@ class Scheduler:
             self._waitlisted.add(eid)
         if eid in self._accepted or eid in self._waitlisted:
             return
-        # Clear failed flag so a manual refresh gives the event another chance.
         self._permanently_failed.discard(eid)
         existing = self._scheduled.get(eid)
         if existing and not existing.done():
@@ -533,8 +539,8 @@ class Scheduler:
         fire_ts = invite_ts + float(per["initial_delay"])
         delay = max(0.0, fire_ts - time.time())
         log.info(
-            "refresh: rearming auto-%s for %s in %.1fs (%s) using member_id=%s",
-            per["response"], eid, delay, e.get("heading"), uid,
+            "refresh: rearming auto-%s for %s in %.1fs (%s) using member_id=%s (user=%s)",
+            per["response"], eid, delay, e.get("heading"), uid, self._user_id,
         )
         self._scheduled_fire_ts[eid] = fire_ts
         self._scheduled[eid] = asyncio.create_task(
@@ -566,36 +572,27 @@ class Scheduler:
         _base = {"event_id": event_id, "heading": heading, "startTimestamp": start_ts}
 
         if dry_run:
-            log.info(
-                "[dry-run] would %s event %s (%s)", response_key, event_id, heading,
-            )
+            log.info("[dry-run] would %s event %s (%s)", response_key, event_id, heading)
             self._accepted.add(event_id)
-            _save_id_set(ACCEPTED_PATH, self._accepted)
+            _save_id_set(_accepted_path(self._user_id), self._accepted)
             append_history({**_base, "response": response_key, "attempt": 0,
-                            "ok": True, "dry_run": True})
+                            "ok": True, "dry_run": True}, self._user_id)
             return
 
         s = await self.get_client(username, password)
 
-        # Fall back to a live profile fetch if the pre-cached id is missing.
         if not user_id:
             try:
                 profile = await s.get_profile()
-                user_id = (
-                    (profile.get("profile") or {}).get("id")
-                    or profile.get("id")
-                )
+                user_id = (profile.get("profile") or {}).get("id") or profile.get("id")
             except Exception as exc:
                 log.error("could not fetch profile for accept: %s", exc)
-                append_history({**_base, "ok": False, "error": f"profile fetch: {exc}"})
+                append_history({**_base, "ok": False, "error": f"profile fetch: {exc}"}, self._user_id)
                 return
 
         if not user_id:
-            log.error(
-                "could not resolve user/member ID for event %s (%s) — cannot accept",
-                event_id, heading,
-            )
-            append_history({**_base, "ok": False, "error": "no user/member id"})
+            log.error("could not resolve user/member ID for event %s (%s)", event_id, heading)
+            append_history({**_base, "ok": False, "error": "no user/member id"}, self._user_id)
             return
 
         payload = {response_key: "true"}
@@ -609,7 +606,6 @@ class Scheduler:
         for attempt in range(1, retries + 2):
             try:
                 result = await s.change_response(event_id, user_id, payload)
-                # Error responses contain "errorCode" (e.g. {"errorCode": 404, ...})
                 if isinstance(result, dict) and "errorCode" not in result:
                     waitlisted = user_id in result.get("waitinglistIds", [])
                     if waitlisted:
@@ -627,13 +623,10 @@ class Scheduler:
                         self._accepted.add(event_id)
                         self._waitlisted.discard(event_id)
                     async with self._id_set_lock:
-                        _save_id_set(ACCEPTED_PATH, self._accepted)
+                        _save_id_set(_accepted_path(self._user_id), self._accepted)
                     append_history({**_base, "response": response_key, "attempt": attempt,
-                                    "ok": True, "waitlisted": waitlisted})
+                                    "ok": True, "waitlisted": waitlisted}, self._user_id)
                     return
-                # 404 may be a transient race condition (invite just opened,
-                # Spond backend hasn't propagated it yet) — retry like any
-                # other failure rather than giving up immediately.
                 if result.get("errorCode") == 404:
                     consecutive_404s += 1
                     log.warning(
@@ -649,56 +642,207 @@ class Scheduler:
                     )
             except Exception as exc:
                 consecutive_404s = 0
-                log.warning(
-                    "attempt %d for %s failed: %s", attempt, event_id, exc,
-                )
+                log.warning("attempt %d for %s failed: %s", attempt, event_id, exc)
             if attempt < retries + 1:
                 await asyncio.sleep(interval)
         total = retries + 1
         log.error("gave up on event %s after %d attempts", event_id, total)
         self._permanently_failed.add(event_id)
         async with self._id_set_lock:
-            _save_id_set(FAILED_PATH, self._permanently_failed)
-        # If every attempt was a 404, report as "not invited"; otherwise report
-        # exhausted retries so the two failure modes remain distinguishable.
+            _save_id_set(_failed_path(self._user_id), self._permanently_failed)
         error_msg = (
             "not invited to this occurrence"
             if consecutive_404s == total
             else f"gave up after {total} attempts"
         )
-        append_history({**_base, "response": response_key, "ok": False, "error": error_msg})
+        append_history({**_base, "response": response_key, "ok": False, "error": error_msg}, self._user_id)
 
 
 def _available_epoch(event: dict) -> float:
-    """Best-effort guess of the UTC epoch when an invite becomes responsive."""
     import datetime as dt
-
     for key in ("inviteTime", "invitedTimestamp", "startTimestamp"):
         val = event.get(key)
         if val:
             try:
-                return dt.datetime.fromisoformat(
-                    val.replace("Z", "+00:00")
-                ).timestamp()
+                return dt.datetime.fromisoformat(val.replace("Z", "+00:00")).timestamp()
             except (ValueError, AttributeError):
                 continue
     return time.time()
 
 
-scheduler = Scheduler()
+# ---------- scheduler manager ----------
+
+class SchedulerManager:
+    def __init__(self) -> None:
+        self._schedulers: dict[str, Scheduler] = {}
+
+    async def get(self, user_id: str) -> Scheduler:
+        if user_id not in self._schedulers:
+            s = Scheduler(user_id)
+            self._schedulers[user_id] = s
+            await s.start()
+        return self._schedulers[user_id]
+
+    async def remove(self, user_id: str) -> None:
+        s = self._schedulers.pop(user_id, None)
+        if s:
+            await s.stop()
+
+    async def stop_all(self) -> None:
+        for s in list(self._schedulers.values()):
+            await s.stop()
+        self._schedulers.clear()
+
+    def all_status(self) -> list[dict[str, Any]]:
+        return [s.status() for s in self._schedulers.values()]
+
+
+manager = SchedulerManager()
 
 
 # ---------- FastAPI ----------
 
+limiter = Limiter(key_func=get_remote_address)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
-    await scheduler.start()
+    for user in load_users():
+        cfg = load_config(user["id"])
+        if cfg.get("username") and cfg.get("password"):
+            await manager.get(user["id"])
     yield
-    await scheduler.stop()
+    await manager.stop_all()
 
 
 app = FastAPI(title="SpondBot", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+# ---------- auth routes ----------
+
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/login")
+@limiter.limit("5/minute")
+async def auth_login(request: Request, response: Response, body: LoginBody) -> dict:
+    user = get_user_by_username(body.username)
+    ok = verify_password(body.password, user["hashed_password"] if user else None)
+    if not ok:
+        raise HTTPException(401, "Invalid username or password")
+    token = create_access_token(user["id"], user["username"], user["is_admin"])
+    response.set_cookie("sb_session", token, **COOKIE_KWARGS)
+    return {"username": user["username"], "is_admin": user["is_admin"]}
+
+
+@app.post("/auth/logout")
+async def auth_logout(response: Response) -> dict:
+    response.delete_cookie("sb_session", path="/")
+    return {"status": "ok"}
+
+
+@app.get("/auth/me")
+async def auth_me(user: dict = Depends(get_current_user)) -> dict:
+    return user
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+@app.patch("/auth/me/password")
+async def auth_change_password(
+    body: ChangePasswordBody, user: dict = Depends(get_current_user)
+) -> dict:
+    from webui.users import get_user_by_id
+    full = get_user_by_id(user["id"])
+    if not full or not verify_password(body.current_password, full.get("hashed_password")):
+        raise HTTPException(400, "Current password is incorrect")
+    update_user(user["id"], password=body.new_password)
+    return {"status": "ok"}
+
+
+# ---------- admin routes ----------
+
+class CreateUserBody(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=8)
+    is_admin: bool = False
+
+
+class UpdateUserBody(BaseModel):
+    is_admin: bool | None = None
+    password: str | None = Field(default=None, min_length=8)
+
+
+@app.get("/admin/users")
+async def admin_list_users(_: dict = Depends(get_admin_user)) -> list:
+    return load_users()
+
+
+@app.post("/admin/users")
+async def admin_create_user(
+    body: CreateUserBody, _: dict = Depends(get_admin_user)
+) -> dict:
+    try:
+        return create_user(body.username, body.password, body.is_admin)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.patch("/admin/users/{uid}")
+async def admin_update_user(
+    uid: str, body: UpdateUserBody, admin: dict = Depends(get_admin_user)
+) -> dict:
+    fields: dict[str, Any] = {}
+    if body.is_admin is not None:
+        fields["is_admin"] = body.is_admin
+    if body.password is not None:
+        fields["password"] = body.password
+    if not fields:
+        raise HTTPException(400, "Nothing to update")
+    try:
+        return update_user(uid, **fields)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.delete("/admin/users/{uid}")
+async def admin_delete_user(
+    uid: str, admin: dict = Depends(get_admin_user)
+) -> dict:
+    if uid == admin["id"]:
+        raise HTTPException(400, "Cannot delete your own account")
+    if not delete_user(uid):
+        raise HTTPException(404, f"User {uid} not found")
+    await manager.remove(uid)
+    return {"status": "ok"}
+
+
+@app.get("/admin/activity")
+async def admin_activity(
+    limit: int = 200, _: dict = Depends(get_admin_user)
+) -> dict:
+    users = {u["id"]: u["username"] for u in load_users()}
+    all_entries: list[dict] = []
+    for uid, username in users.items():
+        for entry in read_history(uid, limit=limit):
+            all_entries.append({**entry, "username": username})
+    all_entries.sort(key=lambda e: e.get("ts", 0), reverse=True)
+    return {"entries": all_entries[:limit]}
+
+
+@app.get("/admin/status")
+async def admin_status(_: dict = Depends(get_admin_user)) -> list:
+    return manager.all_status()
+
+
+# ---------- existing API routes (now user-scoped) ----------
 
 class Credentials(BaseModel):
     username: str
@@ -723,14 +867,12 @@ class EventSettings(BaseModel):
     initial_delay: float | None = Field(default=None, ge=0, le=60)
     retry_count: int | None = Field(default=None, ge=0, le=100)
     retry_interval: float | None = Field(default=None, ge=0.05, le=60)
-    response: str | None = Field(
-        default=None, pattern="^(accepted|declined|unconfirmed)$",
-    )
+    response: str | None = Field(default=None, pattern="^(accepted|declined|unconfirmed)$")
 
 
 @app.get("/api/config")
-async def api_get_config() -> dict[str, Any]:
-    cfg = load_config()
+async def api_get_config(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    cfg = load_config(user["id"])
     return {
         "username": cfg.get("username", ""),
         "has_password": bool(cfg.get("password")),
@@ -742,21 +884,22 @@ async def api_get_config() -> dict[str, Any]:
 
 
 @app.post("/api/config")
-async def api_save_config(body: Credentials) -> dict[str, str]:
-    cfg = load_config()
-    creds_changed = (
-        body.username != cfg.get("username")
-        or body.password != cfg.get("password")
-    )
+async def api_save_config(
+    body: Credentials, user: dict = Depends(get_current_user)
+) -> dict[str, str]:
+    uid = user["id"]
+    cfg = load_config(uid)
+    creds_changed = body.username != cfg.get("username") or body.password != cfg.get("password")
     cfg["username"] = body.username
     cfg["password"] = body.password
     cfg["group_ids"] = [g.strip() for g in body.group_ids if g.strip()]
-    save_config(cfg)
+    save_config(cfg, uid)
 
+    sch = await manager.get(uid)
     if creds_changed:
-        await scheduler.reset_client()
+        await sch.reset_client()
         try:
-            s = await scheduler.get_client(body.username, body.password)
+            s = await sch.get_client(body.username, body.password)
             await s.login()
         except AuthenticationError as exc:
             raise HTTPException(401, f"Spond login failed: {exc}") from exc
@@ -766,28 +909,27 @@ async def api_save_config(body: Credentials) -> dict[str, str]:
                 "Spond rate-limited the login. Wait a few minutes and try again.",
             ) from exc
 
-    await scheduler.start()
-    scheduler.wake()
+    await sch.start()
+    sch.wake()
     return {"status": "ok"}
 
 
 @app.get("/api/events")
-async def api_events() -> dict[str, Any]:
-    cfg = load_config()
+async def api_events(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    uid = user["id"]
+    cfg = load_config(uid)
+    sch = await manager.get(uid)
     selected = set(cfg.get("selected_event_ids") or [])
     event_settings = cfg.get("event_settings") or {}
-    user_id = scheduler._cached_user_id
+    spond_uid = sch._cached_user_id
     events = []
-    for e in scheduler.events:
+    for e in sch.events:
         gid = (e.get("group") or {}).get("id") or e.get("groupId")
         responses = e.get("responses") or {}
-        # Derive status from Spond response data (accurate across restarts) and
-        # fall back to in-memory tracking for events accepted in this session
-        # before the next poll refreshes the cache.
-        in_accepted = user_id and user_id in (responses.get("acceptedIds") or [])
-        in_waitlist = user_id and user_id in (responses.get("waitinglistIds") or [])
-        accepted = bool(in_accepted) or e["id"] in scheduler.accepted
-        waitlisted = bool(in_waitlist) or e["id"] in scheduler.waitlisted
+        in_accepted = spond_uid and spond_uid in (responses.get("acceptedIds") or [])
+        in_waitlist = spond_uid and spond_uid in (responses.get("waitinglistIds") or [])
+        accepted = bool(in_accepted) or e["id"] in sch.accepted
+        waitlisted = bool(in_waitlist) or e["id"] in sch.waitlisted
         events.append({
             "id": e["id"],
             "heading": e.get("heading"),
@@ -799,9 +941,9 @@ async def api_events() -> dict[str, Any]:
             "selected": e["id"] in selected,
             "accepted": accepted and not waitlisted,
             "waitlisted": waitlisted,
-            "failed": e["id"] in scheduler._permanently_failed,
+            "failed": e["id"] in sch._permanently_failed,
             "hasOverride": e["id"] in event_settings,
-            "armed_ts": scheduler._scheduled_fire_ts.get(e["id"]),
+            "armed_ts": sch._scheduled_fire_ts.get(e["id"]),
         })
     return {
         "events": events,
@@ -811,87 +953,94 @@ async def api_events() -> dict[str, Any]:
 
 
 @app.post("/api/events/{event_id}/accept")
-async def api_accept_now(event_id: str) -> dict[str, Any]:
-    """Immediately attempt to accept an event, bypassing the scheduled delay."""
-    cfg = load_config()
+async def api_accept_now(
+    event_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, Any]:
+    uid = user["id"]
+    cfg = load_config(uid)
     if not cfg.get("username") or not cfg.get("password"):
         raise HTTPException(400, "No credentials configured")
-    event = next((e for e in scheduler.events if e["id"] == event_id), None)
+    sch = await manager.get(uid)
+    event = next((e for e in sch.events if e["id"] == event_id), None)
     if not event:
         raise HTTPException(404, "Event not found in cache — try refreshing")
-    if event_id in scheduler._permanently_failed:
-        scheduler._permanently_failed.discard(event_id)
-        async with scheduler._id_set_lock:
-            _save_id_set(FAILED_PATH, scheduler._permanently_failed)
+    if event_id in sch._permanently_failed:
+        sch._permanently_failed.discard(event_id)
+        async with sch._id_set_lock:
+            _save_id_set(_failed_path(uid), sch._permanently_failed)
     per = settings_for(cfg, event_id)
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
-    uid = scheduler._cached_member_ids.get(group_id) if group_id else None
-    uid = uid or scheduler._cached_user_id
-    # Cancel any existing scheduled task and rearm immediately.
-    existing = scheduler._scheduled.get(event_id)
+    member_id = sch._cached_member_ids.get(group_id) if group_id else None
+    member_id = member_id or sch._cached_user_id
+    existing = sch._scheduled.get(event_id)
     if existing and not existing.done():
         existing.cancel()
-    scheduler._scheduled[event_id] = asyncio.create_task(
-        scheduler._accept_later(
+    sch._scheduled[event_id] = asyncio.create_task(
+        sch._accept_later(
             cfg["username"], cfg["password"], event_id, 0.0, per,
             event.get("heading", ""), bool(cfg.get("dry_run")),
-            uid, event.get("startTimestamp"),
+            member_id, event.get("startTimestamp"),
         )
     )
-    return {"status": "fired", "event_id": event_id, "user_id": uid}
+    return {"status": "fired", "event_id": event_id, "user_id": member_id}
 
 
 @app.post("/api/events/{event_id}/refresh")
-async def api_refresh_event(event_id: str) -> dict[str, Any]:
-    """Re-fetch just this event's group from Spond and re-evaluate scheduling."""
-    cfg = load_config()
+async def api_refresh_event(
+    event_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, Any]:
+    uid = user["id"]
+    cfg = load_config(uid)
     if not cfg.get("username") or not cfg.get("password"):
         raise HTTPException(400, "No credentials configured")
-    cached = next((e for e in scheduler.events if e["id"] == event_id), None)
+    sch = await manager.get(uid)
+    cached = next((e for e in sch.events if e["id"] == event_id), None)
     if not cached:
         raise HTTPException(404, "Event not found in cache")
     group_id = ((cached.get("recipients") or {}).get("group") or {}).get("id")
     try:
-        s = await scheduler.get_client(cfg["username"], cfg["password"])
+        s = await sch.get_client(cfg["username"], cfg["password"])
         fresh_events = await s.get_events(group_id=group_id, include_scheduled=True, max_events=200) or []
     except Exception as exc:
         raise HTTPException(502, f"Spond fetch failed: {exc}") from exc
     fresh = next((e for e in fresh_events if e["id"] == event_id), None)
     if not fresh:
         raise HTTPException(404, "Event not returned by Spond — it may have been removed")
-    # Replace the cached entry in-place.
-    for i, e in enumerate(scheduler._events_cache):
+    for i, e in enumerate(sch._events_cache):
         if e["id"] == event_id:
-            scheduler._events_cache[i] = fresh
+            sch._events_cache[i] = fresh
             break
-    # Re-evaluate scheduling for this one event.
-    await scheduler._tick_one(fresh, cfg)
+    await sch._tick_one(fresh, cfg)
     return {"status": "refreshed", "event_id": event_id, "heading": fresh.get("heading")}
 
 
 @app.post("/api/selection")
-async def api_selection(body: Selection) -> dict[str, str]:
-    cfg = load_config()
+async def api_selection(
+    body: Selection, user: dict = Depends(get_current_user)
+) -> dict[str, str]:
+    uid = user["id"]
+    cfg = load_config(uid)
     cfg["selected_event_ids"] = list(dict.fromkeys(body.event_ids))
-    save_config(cfg)
+    save_config(cfg, uid)
     return {"status": "ok"}
 
 
 @app.post("/api/refresh")
-async def api_refresh() -> dict[str, str]:
-    await scheduler.manual_refresh()
+async def api_refresh(user: dict = Depends(get_current_user)) -> dict[str, str]:
+    sch = await manager.get(user["id"])
+    await sch.manual_refresh()
     return {"status": "ok"}
 
 
 @app.get("/api/status")
-async def api_status() -> dict[str, Any]:
-    """Cheap endpoint — no Spond calls, just internal scheduler state."""
-    return scheduler.status()
+async def api_status(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    sch = await manager.get(user["id"])
+    return sch.status()
 
 
 @app.get("/api/settings")
-async def api_get_settings() -> dict[str, Any]:
-    cfg = load_config()
+async def api_get_settings(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    cfg = load_config(user["id"])
     return {
         "defaults": cfg.get("defaults") or DEFAULT_SETTINGS,
         "event_settings": cfg.get("event_settings") or {},
@@ -901,8 +1050,11 @@ async def api_get_settings() -> dict[str, Any]:
 
 
 @app.post("/api/settings")
-async def api_save_settings(body: Settings) -> dict[str, str]:
-    cfg = load_config()
+async def api_save_settings(
+    body: Settings, user: dict = Depends(get_current_user)
+) -> dict[str, str]:
+    uid = user["id"]
+    cfg = load_config(uid)
     cfg["defaults"] = {
         "initial_delay": body.initial_delay,
         "retry_count": body.retry_count,
@@ -911,25 +1063,25 @@ async def api_save_settings(body: Settings) -> dict[str, str]:
     }
     cfg["dry_run"] = body.dry_run
     cfg["group_by"] = body.group_by
-    save_config(cfg)
+    save_config(cfg, uid)
     return {"status": "ok"}
 
 
 @app.get("/api/event-settings/{event_id}")
-async def api_get_event_settings(event_id: str) -> dict[str, Any]:
-    cfg = load_config()
+async def api_get_event_settings(
+    event_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, Any]:
+    cfg = load_config(user["id"])
     override = (cfg.get("event_settings") or {}).get(event_id)
-    return {
-        "override": override,
-        "effective": settings_for(cfg, event_id),
-    }
+    return {"override": override, "effective": settings_for(cfg, event_id)}
 
 
 @app.post("/api/event-settings/{event_id}")
 async def api_set_event_settings(
-    event_id: str, body: EventSettings,
+    event_id: str, body: EventSettings, user: dict = Depends(get_current_user)
 ) -> dict[str, str]:
-    cfg = load_config()
+    uid = user["id"]
+    cfg = load_config(uid)
     overrides = cfg.get("event_settings") or {}
     payload = {k: v for k, v in body.model_dump().items() if v is not None}
     if payload:
@@ -937,46 +1089,40 @@ async def api_set_event_settings(
     else:
         overrides.pop(event_id, None)
     cfg["event_settings"] = overrides
-    save_config(cfg)
+    save_config(cfg, uid)
     return {"status": "ok"}
 
 
 @app.delete("/api/event-settings/{event_id}")
-async def api_clear_event_settings(event_id: str) -> dict[str, str]:
-    cfg = load_config()
+async def api_clear_event_settings(
+    event_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, str]:
+    uid = user["id"]
+    cfg = load_config(uid)
     overrides = cfg.get("event_settings") or {}
     overrides.pop(event_id, None)
     cfg["event_settings"] = overrides
-    save_config(cfg)
+    save_config(cfg, uid)
     return {"status": "ok"}
 
 
 @app.get("/api/history")
-async def api_history(limit: int = 100, event_id: str | None = None) -> dict[str, Any]:
-    return {"entries": read_history(limit=limit, event_id=event_id)}
-
-
-def clear_history(event_id: str | None = None) -> int:
-    """Clear all history or only entries matching event_id. Returns count removed."""
-    if not HISTORY_PATH.exists():
-        return 0
-    if event_id is None:
-        raw = HISTORY_PATH.read_text()
-        HISTORY_PATH.write_text("")
-        return sum(1 for l in raw.splitlines() if l.strip())
-    entries = _parse_history_lines(HISTORY_PATH.read_text().splitlines())
-    kept = [e for e in entries if e.get("event_id") != event_id]
-    removed = len(entries) - len(kept)
-    HISTORY_PATH.write_text(
-        "\n".join(json.dumps(e) for e in kept) + ("\n" if kept else "")
-    )
-    return removed
+async def api_history(
+    user: dict = Depends(get_current_user),
+    limit: int = 100,
+    event_id: str | None = None,
+) -> dict[str, Any]:
+    return {"entries": read_history(user["id"], limit=limit, event_id=event_id)}
 
 
 @app.delete("/api/history")
-async def api_clear_history(event_id: str | None = None) -> dict[str, Any]:
-    return {"cleared": clear_history(event_id=event_id)}
+async def api_clear_history(
+    user: dict = Depends(get_current_user), event_id: str | None = None
+) -> dict[str, Any]:
+    return {"cleared": clear_history(user["id"], event_id=event_id)}
 
+
+# ---------- static files + pages ----------
 
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
@@ -987,6 +1133,16 @@ async def static_files(path: str) -> FileResponse:
     if not full.is_file():
         raise HTTPException(404, "Not found")
     return FileResponse(str(full), headers=_NO_CACHE)
+
+
+@app.get("/login")
+async def login_page() -> FileResponse:
+    return FileResponse(str(STATIC_DIR / "login.html"), headers=_NO_CACHE)
+
+
+@app.get("/admin")
+async def admin_page() -> FileResponse:
+    return FileResponse(str(STATIC_DIR / "admin.html"), headers=_NO_CACHE)
 
 
 @app.get("/")
@@ -1002,7 +1158,3 @@ async def settings_page() -> FileResponse:
 @app.get("/logs")
 async def logs_page() -> FileResponse:
     return FileResponse(str(STATIC_DIR / "logs.html"), headers=_NO_CACHE)
-
-
-# Silence secrets-unused warning without adding runtime cost.
-_ = secrets

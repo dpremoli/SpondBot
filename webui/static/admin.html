@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SpondBot — Admin</title>
+<link rel="icon" type="image/png" href="/static/logo.png" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <nav id="top-nav" class="top-nav">
+    <a href="/">Events</a>
+    <a href="/logs">Logs</a>
+    <a href="/settings">Settings</a>
+    <a href="/admin" class="active">Admin</a>
+    <span class="nav-spacer"></span>
+    <span id="nav-user" class="nav-user"></span>
+    <button id="nav-logout" class="ghost small">Logout</button>
+  </nav>
+</header>
+
+<main>
+  <h1>Admin</h1>
+
+  <div class="tab-bar">
+    <button class="tab-btn tab-btn--active" data-tab="users">Users</button>
+    <button class="tab-btn" data-tab="activity">Activity</button>
+    <button class="tab-btn" data-tab="bots">Bot Status</button>
+  </div>
+
+  <!-- Users tab -->
+  <div id="tab-users" class="tab-panel">
+    <div class="card-header" style="margin-bottom:.75rem">
+      <h2 style="margin:0">Users</h2>
+      <button id="new-user-btn">+ New user</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="data-table" id="users-table">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+    <p id="users-status" class="status"></p>
+  </div>
+
+  <!-- Activity tab -->
+  <div id="tab-activity" class="tab-panel" hidden>
+    <div class="card-header" style="margin-bottom:.75rem">
+      <h2 style="margin:0">All activity</h2>
+      <div class="toolbar">
+        <select id="activity-user-filter"><option value="">All users</option></select>
+        <button id="activity-reload" class="ghost small">Reload</button>
+      </div>
+    </div>
+    <div id="admin-timeline" class="timeline"></div>
+  </div>
+
+  <!-- Bot Status tab -->
+  <div id="tab-bots" class="tab-panel" hidden>
+    <div class="card-header" style="margin-bottom:.75rem">
+      <h2 style="margin:0">Bot Status</h2>
+      <button id="bots-reload" class="ghost small">Reload</button>
+    </div>
+    <div id="bots-grid"></div>
+  </div>
+</main>
+
+<!-- New / edit user modal -->
+<div id="user-modal" class="modal-backdrop" hidden>
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h2 id="user-modal-title">New user</h2>
+      <button id="user-modal-close" class="modal-close" aria-label="Close">✕</button>
+    </div>
+    <form id="user-form">
+      <label>Username
+        <input type="text" id="uf-username" autocomplete="off" />
+      </label>
+      <label id="uf-pw-label">Password
+        <input type="password" id="uf-password" autocomplete="new-password" placeholder="min 8 characters" />
+      </label>
+      <label class="inline">
+        <input type="checkbox" id="uf-admin" />
+        Admin
+      </label>
+      <div style="display:flex;gap:.5rem;margin-top:1rem">
+        <button type="submit" id="uf-submit">Create</button>
+        <button type="button" id="uf-cancel" class="ghost">Cancel</button>
+      </div>
+      <p id="uf-error" class="status err" hidden></p>
+    </form>
+  </div>
+</div>
+
+<!-- Per-event history modal (shared) -->
+<div id="event-modal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h2 id="modal-title">Event history</h2>
+        <p id="modal-event-id" class="muted modal-event-id"></p>
+      </div>
+      <button id="modal-close" class="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div id="modal-lifecycle" class="modal-lifecycle"></div>
+    <div class="modal-section-label">Bot activity</div>
+    <div id="modal-timeline" class="timeline timeline--modal"></div>
+  </div>
+</div>
+
+<nav class="bottom-nav" id="bottom-nav">
+  <a href="/" class="bottom-nav-item">
+    <span class="bottom-nav-icon">📅</span>
+    <span>Events</span>
+  </a>
+  <a href="/logs" class="bottom-nav-item">
+    <span class="bottom-nav-icon">📋</span>
+    <span>Logs</span>
+  </a>
+  <a href="/settings" class="bottom-nav-item">
+    <span class="bottom-nav-icon">⚙️</span>
+    <span>Settings</span>
+  </a>
+  <a href="/admin" class="bottom-nav-item bottom-nav-item--active">
+    <span class="bottom-nav-icon">👤</span>
+    <span>Admin</span>
+  </a>
+</nav>
+
+<script src="/static/timeline.js"></script>
+<script src="/static/admin.js"></script>
+</body>
+</html>
