@@ -518,6 +518,7 @@ class Scheduler:
         payload = {response_key: "true"}
         retries = int(per["retry_count"])
         interval = float(per["retry_interval"])
+        log.info("responding to %s (%s) as user_id=%s", event_id, heading, user_id)
         consecutive_404s = 0
         for attempt in range(1, retries + 2):
             try:
@@ -543,14 +544,14 @@ class Scheduler:
                 if result.get("errorCode") == 404:
                     consecutive_404s += 1
                     log.warning(
-                        "attempt %d for %s: not invited (404) — %s",
-                        attempt, event_id,
+                        "attempt %d for %s: error response (full body): %s — %s",
+                        attempt, event_id, result,
                         "retrying" if attempt < retries + 1 else "giving up",
                     )
                 else:
                     consecutive_404s = 0
                     log.warning(
-                        "attempt %d for %s returned: %s",
+                        "attempt %d for %s: error response (full body): %s",
                         attempt, event_id, result,
                     )
             except Exception as exc:
