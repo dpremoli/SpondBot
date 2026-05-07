@@ -325,8 +325,9 @@ function tlRenderModalActions(container, eventId, meta) {
     try {
       const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/${verb}`, { method: "POST" });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.detail || res.statusText);
+        let detail = res.statusText;
+        try { const j = await res.json(); detail = j.detail || detail; } catch { /* ok */ }
+        throw new Error(detail);
       }
       btn.textContent = verb === "accept" ? "✓ Accepted" : "✕ Declined";
     } catch (e) {

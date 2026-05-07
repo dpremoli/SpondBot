@@ -702,6 +702,20 @@ class Scheduler:
         append_history({**_base, "response": response_key, "ok": False, "error": error_msg}, self._user_id)
 
 
+def _extract_location(event: dict) -> str | None:
+    loc = event.get("location") or {}
+    if not isinstance(loc, dict):
+        loc = {}
+    feature = loc.get("feature") or {}
+    if not isinstance(feature, dict):
+        feature = {}
+    return (
+        (feature.get("properties") or {}).get("name")
+        or loc.get("address")
+        or loc.get("name")
+    )
+
+
 def _is_payment_required(event: dict) -> bool:
     """Return True if this event requires upfront payment to register."""
     if event.get("requiresPayment"):
@@ -1020,12 +1034,7 @@ async def api_events(user: dict = Depends(get_current_user)) -> dict[str, Any]:
         in_waitlist = spond_uid and spond_uid in (responses.get("waitinglistIds") or [])
         accepted = bool(in_accepted) or e["id"] in sch.accepted
         waitlisted = bool(in_waitlist) or e["id"] in sch.waitlisted
-        loc = e.get("location") or {}
-        loc_name = (
-            (loc.get("feature") or {}).get("properties", {}).get("name")
-            or loc.get("address")
-            or loc.get("name")
-        )
+        loc_name = _extract_location(e)
         events.append({
             "id": e["id"],
             "heading": e.get("heading"),
