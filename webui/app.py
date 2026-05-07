@@ -433,7 +433,7 @@ class Scheduler:
                 log.warning("profile pre-fetch failed: %s", exc)
 
         profile_id = self._cached_user_id
-        if profile_id and group_ids:
+        if profile_id:
             try:
                 groups = await s.get_groups() or []
                 for g in groups:
