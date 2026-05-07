@@ -554,11 +554,68 @@ $("#show-past").addEventListener("change", () => {
 });
 
 (function () {
-  const modal = document.querySelector("#event-modal");
-  if (!modal) return;
-  document.querySelector("#modal-close").addEventListener("click", () => { modal.hidden = true; });
-  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") modal.hidden = true; });
+  const backdrop = document.querySelector("#event-modal");
+  if (!backdrop) return;
+  const sheet = backdrop.querySelector(".modal");
+
+  function closeModal() {
+    if (window.matchMedia("(max-width: 699px)").matches) {
+      sheet.style.transition = "transform .22s ease-in, opacity .22s ease-in";
+      sheet.style.transform = "translateY(100%)";
+      sheet.style.opacity = "0";
+      setTimeout(() => {
+        backdrop.hidden = true;
+        sheet.style.cssText = "";
+      }, 230);
+    } else {
+      backdrop.hidden = true;
+    }
+  }
+
+  document.querySelector("#modal-close").addEventListener("click", closeModal);
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+  // Swipe-to-dismiss: track finger drag on the sheet
+  let _startY = 0;
+  let _dragging = false;
+
+  sheet.addEventListener("touchstart", (e) => {
+    if (sheet.scrollTop > 0) return; // don't intercept when content is scrolled
+    _startY = e.touches[0].clientY;
+    _dragging = true;
+    sheet.style.transition = "none";
+  }, { passive: true });
+
+  sheet.addEventListener("touchmove", (e) => {
+    if (!_dragging) return;
+    const dy = e.touches[0].clientY - _startY;
+    if (dy <= 0) { // scrolling up — let the sheet scroll normally
+      _dragging = false;
+      sheet.style.transition = "";
+      sheet.style.transform = "";
+      return;
+    }
+    e.preventDefault(); // block pull-to-refresh while dragging down
+    sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive: false });
+
+  function _endDrag(endY) {
+    if (!_dragging) return;
+    _dragging = false;
+    const dy = endY - _startY;
+    if (dy > 80) {
+      closeModal();
+    } else {
+      // Snap back with a springy feel
+      sheet.style.transition = "transform .2s cubic-bezier(.34,1.56,.64,1)";
+      sheet.style.transform = "";
+      sheet.addEventListener("transitionend", () => { sheet.style.transition = ""; }, { once: true });
+    }
+  }
+
+  sheet.addEventListener("touchend", (e) => { _endDrag(e.changedTouches[0].clientY); }, { passive: true });
+  sheet.addEventListener("touchcancel", (e) => { _endDrag(_startY); }, { passive: true }); // snap back on cancel
 })();
 
 // ---- View toggle ----
