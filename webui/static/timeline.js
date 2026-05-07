@@ -303,22 +303,43 @@ function tlRenderEventInfo(container, eventId, meta) {
 }
 
 function _buildActionBtns(container, eventId, meta) {
+  // Manually accepted via Spond app: accepted but no bot arm record
+  const manuallyAccepted = meta.accepted && !meta.armed_ts;
+
+  if (manuallyAccepted) {
+    const note = document.createElement("div");
+    note.className = "ev-manual-note";
+    note.innerHTML = `<span class="ev-count ev-count--ok" style="border-radius:6px;font-size:.8rem;padding:.3rem .6rem;">✓ Accepted in Spond</span>`;
+    const declineBtn = document.createElement("button");
+    declineBtn.className = "ev-btn--decline small";
+    declineBtn.textContent = "Decline";
+    declineBtn.addEventListener("click", () => {
+      if (confirm(`Decline "${meta._heading || eventId}"?\nThis cannot be undone without going to Spond.`)) {
+        _fireAction("decline", declineBtn, null, container, eventId, meta);
+      }
+    });
+    container.append(note, declineBtn);
+    return;
+  }
+
   const acceptBtn = document.createElement("button");
   const declineBtn = document.createElement("button");
-  acceptBtn.className = "small";
-  declineBtn.className = "ghost small";
   declineBtn.textContent = "Decline";
 
   if (meta.accepted) {
     acceptBtn.textContent = "✓ Accepted";
     acceptBtn.className = "small ev-btn--accepted";
     acceptBtn.disabled = true;
+    declineBtn.className = "ev-btn--decline small";
   } else if (meta.waitlisted) {
     acceptBtn.textContent = "⏳ Waitlisted";
     acceptBtn.className = "small ev-btn--waitlisted";
     acceptBtn.disabled = true;
+    declineBtn.className = "ev-btn--decline small";
   } else {
     acceptBtn.textContent = "Accept";
+    acceptBtn.className = "ev-btn--accept small";
+    declineBtn.className = "ev-btn--decline small";
   }
 
   if (meta.paymentRequired) {
@@ -326,40 +347,40 @@ function _buildActionBtns(container, eventId, meta) {
     acceptBtn.title = "Payment required — accept manually in the Spond app";
   }
 
-  async function fireAction(verb, btn, otherBtn) {
-    btn.disabled = true;
-    otherBtn.disabled = true;
-    const prev = btn.textContent;
-    btn.textContent = "…";
-    try {
-      const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/${verb}`, { method: "POST" });
-      if (!res.ok) {
-        let detail = res.statusText;
-        try { const j = await res.json(); detail = j.detail || detail; } catch { /* ok */ }
-        throw new Error(detail);
-      }
-      btn.textContent = verb === "accept" ? "✓ Accepted" : "✕ Declined";
-    } catch (e) {
-      btn.textContent = prev;
-      btn.disabled = false;
-      otherBtn.disabled = false;
-      const errEl = document.createElement("span");
-      errEl.className = "modal-action-err";
-      errEl.textContent = e.message;
-      container.appendChild(errEl);
-    }
-  }
-
   acceptBtn.addEventListener("click", () => {
-    if (!acceptBtn.disabled) fireAction("accept", acceptBtn, declineBtn);
+    if (!acceptBtn.disabled) _fireAction("accept", acceptBtn, declineBtn, container, eventId, meta);
   });
   declineBtn.addEventListener("click", () => {
     if (confirm(`Decline "${meta._heading || eventId}"?\nThis cannot be undone without going to Spond.`)) {
-      fireAction("decline", declineBtn, acceptBtn);
+      _fireAction("decline", declineBtn, acceptBtn, container, eventId, meta);
     }
   });
 
   container.append(acceptBtn, declineBtn);
+}
+
+async function _fireAction(verb, btn, otherBtn, container, eventId, meta) {
+  btn.disabled = true;
+  if (otherBtn) otherBtn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = "…";
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/${verb}`, { method: "POST" });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { const j = await res.json(); detail = j.detail || detail; } catch { /* ok */ }
+      throw new Error(detail);
+    }
+    btn.textContent = verb === "accept" ? "✓ Accepted" : "✕ Declined";
+  } catch (e) {
+    btn.textContent = prev;
+    btn.disabled = false;
+    if (otherBtn) otherBtn.disabled = false;
+    const errEl = document.createElement("span");
+    errEl.className = "modal-action-err";
+    errEl.textContent = e.message;
+    container.appendChild(errEl);
+  }
 }
 
 function tlRenderModalActions(container) {

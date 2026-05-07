@@ -359,10 +359,10 @@ tr.selected-row > td:first-child {
 .modal-event-info { margin: .65rem 0 0; }
 .ev-info-wrap {
   display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: .75rem;
+  gap: 1.25rem;
+  padding-bottom: 1rem;
   border-bottom: 1px solid var(--border);
-  margin-bottom: .5rem;
+  margin-bottom: .75rem;
 }
 .ev-info { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 0; }
 .ev-info-row {
@@ -381,10 +381,16 @@ tr.selected-row > td:first-child {
 .ev-count--err { color: var(--err); border-color: var(--err); background: #2a0f0f; }
 .ev-count--muted { color: var(--muted); border-color: transparent; }
 .ev-action-btns {
-  display: flex; flex-direction: column; gap: .4rem;
-  flex-shrink: 0; align-items: stretch; min-width: 90px;
+  display: flex; flex-direction: column; gap: .45rem;
+  flex-shrink: 0; align-items: stretch; min-width: 96px;
 }
-.ev-action-btns button { width: 100%; }
+.ev-action-btns button { width: 100%; justify-content: center; }
+.ev-manual-note { margin-bottom: .1rem; }
+.ev-btn--accept {
+  background: #0f2a1a; color: var(--ok);
+  border: 1px solid var(--ok);
+}
+.ev-btn--accept:hover { filter: brightness(1.15); }
 .ev-btn--accepted {
   background: #0f2a1a; color: var(--ok);
   border: 1px solid var(--ok); cursor: default; filter: none;
@@ -393,7 +399,12 @@ tr.selected-row > td:first-child {
   background: #2a1f00; color: var(--warn);
   border: 1px solid var(--warn); cursor: default; filter: none;
 }
-.modal-action-err { color: var(--err); font-size: .78rem; margin-top: .2rem; }
+.ev-btn--decline {
+  background: transparent; color: var(--err);
+  border: 1px solid var(--err);
+}
+.ev-btn--decline:hover { background: #2a0f0f; filter: none; }
+.modal-action-err { color: var(--err); font-size: .78rem; margin-top: .25rem; }
 
 /* ── 4-step lifecycle inside modal ── */
 .modal-lifecycle {
