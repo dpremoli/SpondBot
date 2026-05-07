@@ -37,7 +37,7 @@ from webui.users import (
     verify_password,
 )
 
-VERSION = "0.7.0"
+VERSION = "1.0.0"
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),

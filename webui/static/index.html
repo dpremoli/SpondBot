@@ -28,7 +28,7 @@
   <div class="app-body">
     <aside class="left-nav" id="left-nav" hidden>
       <a href="/" class="ln-item" id="ln-events">📅 Events</a>
-      <a href="/admin" class="ln-item" id="ln-dashboard">🛡 Dashboard</a>
+      <a href="/admin" class="ln-item" id="ln-dashboard">🛡 Users</a>
       <a href="/logs" class="ln-item" id="ln-logs">📋 Logs</a>
       <a href="/settings" class="ln-item" id="ln-settings">⚙️ Settings</a>
     </aside>
@@ -68,13 +68,14 @@
           </section>
         </div>
 
-        <aside class="status-panel-aside">
+        <aside class="status-panel-aside sp-collapsed" id="status-panel-aside">
           <section class="card status-panel" id="status-panel">
             <div class="status-panel-header">
               <span class="dot" id="status-dot"></span>
               <span id="status-text">loading…</span>
               <span id="status-dry" class="tag dry-tag" hidden>DRY RUN</span>
               <button id="status-refresh" class="ghost small status-refresh-btn" title="Refresh now">↺</button>
+              <button id="status-collapse-btn" class="ghost small status-collapse-btn" title="Expand status panel">▾</button>
             </div>
             <div id="status-next-up" class="status-next-up" hidden></div>
           </section>
@@ -117,7 +118,7 @@
   </a>
   <a href="/admin" class="bottom-nav-item" id="bottom-admin" hidden>
     <span class="bottom-nav-icon">🛡</span>
-    <span>Dashboard</span>
+    <span>Users</span>
   </a>
   <button class="bottom-nav-item bottom-nav-item--logout" id="mobile-logout">
     <span class="bottom-nav-icon">⏻</span>
