@@ -827,6 +827,30 @@ function renderCalendar() {
   container.appendChild(grid);
 }
 
+// ---- Mobile status panel collapse toggle ----
+(function () {
+  const aside = document.getElementById("status-panel-aside");
+  const btn = document.getElementById("status-collapse-btn");
+  if (!aside || !btn) return;
+
+  function isCollapsed() { return aside.classList.contains("sp-collapsed"); }
+
+  function setCollapsed(collapsed) {
+    aside.classList.toggle("sp-collapsed", collapsed);
+    btn.textContent = collapsed ? "▾" : "▴";
+    btn.title = collapsed ? "Expand status panel" : "Collapse status panel";
+  }
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setCollapsed(!isCollapsed());
+  });
+
+  // On desktop the aside starts without sp-collapsed; on mobile it was set in HTML.
+  // Sync the button icon on load.
+  btn.textContent = isCollapsed() ? "▾" : "▴";
+})();
+
 loadConfig()
   .then(() => Promise.all([loadEvents(), loadStatus()]))
   .catch(() => {});

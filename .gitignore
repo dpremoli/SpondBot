@@ -168,3 +168,9 @@ cython_debug/
 # Project specific
 examples/config.py
 examples/exports/
+
+# Runtime data (contains user credentials — never commit)
+data/
+
+# Claude Code session settings
+.claude/
