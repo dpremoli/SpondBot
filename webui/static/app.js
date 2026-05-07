@@ -42,7 +42,7 @@ function fmt(ts) {
   if (!ts) return "—";
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
   if (isNaN(d.getTime())) return String(ts);
-  return d.toLocaleString();
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
 function fmtRel(ts) {

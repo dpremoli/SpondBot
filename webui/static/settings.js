@@ -46,7 +46,8 @@ function escapeHtml(s) {
 function fmt(ts) {
   if (!ts) return "—";
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
-  return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+  if (isNaN(d.getTime())) return String(ts);
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
 // ---- Spond credentials ----
