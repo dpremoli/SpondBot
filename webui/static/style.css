@@ -137,7 +137,7 @@ tr.failed td.result { color: var(--err); }
 /* failed row in the events table (permanently failed, not logs) */
 tr.failed td { color: var(--err); }
 
-table.sessions td { height: 3.2rem; }
+@media (min-width: 700px) { table.sessions td { height: 3.2rem; } }
 table.sessions input[type=checkbox] { width: auto; margin: 0; }
 
 /* status bar */
@@ -631,29 +631,67 @@ tr.selected-row > td:first-child {
   .top-nav .nav-user,
   .top-nav #nav-logout { display: none; }
 
-  /* Event table → card layout */
+  /* ── Compact toolbar ── */
+  .toolbar { gap: .35rem; }
+  .view-btn { padding: .25rem .55rem; font-size: .78rem; }
+  #group-by-label { font-size: .78rem; }
+  #group-by-label select { font-size: .78rem; padding: .3rem .4rem; }
+  #refresh, #save-selection { padding: .35rem .7rem; font-size: .82rem; }
+
+  /* ── Event table → card layout ── */
   .sessions thead { display: none; }
+  .sessions tbody { display: flex; flex-direction: column; gap: .45rem; }
+
   .sessions tr {
-    display: block;
+    display: grid;
+    grid-template-columns: 2rem 1fr auto;
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      "cb  start  status"
+      "cb  invite invite"
+      "act act    act";
     border-radius: var(--radius);
     background: var(--card);
     border: 1px solid var(--border);
-    margin-bottom: .5rem;
-    padding: .5rem .75rem;
+    padding: .6rem .65rem;
+    gap: .1rem .4rem;
+    cursor: pointer;
   }
   .sessions tr.selected-row { border-left: 3px solid var(--accent); }
-  .sessions td {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: .25rem 0; border-bottom: 0;
-    font-size: .85rem;
+  .sessions td { padding: 0; border: 0; font-size: .85rem; display: flex; align-items: center; }
+
+  /* Suppress data-label pseudo-elements in grid mode */
+  .sessions td::before { display: none; }
+
+  .td-cb   { grid-area: cb;     align-items: flex-start; padding-top: .15rem; }
+  .sessions td[data-label="Starts"] {
+    grid-area: start;
+    font-weight: 500; font-size: .9rem;
   }
-  .sessions td::before {
-    content: attr(data-label);
-    color: var(--muted); font-size: .78rem; flex-shrink: 0; margin-right: .5rem;
+  .sessions td[data-label="Ends"]   { display: none; }
+  .sessions td[data-label="Invite opens"] {
+    grid-area: invite;
+    font-size: .78rem; color: var(--muted);
   }
-  .sessions td:first-child { justify-content: flex-start; gap: .5rem; }
-  .sessions td:first-child::before { content: none; }
-  .td-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .sessions td[data-label="Status"] {
+    grid-area: status;
+    justify-content: flex-end;
+  }
+  .td-actions {
+    grid-area: act;
+    justify-content: flex-start;
+    gap: .35rem;
+    padding-top: .4rem;
+    border-top: 1px solid var(--border);
+    margin-top: .3rem;
+    flex-wrap: wrap;
+  }
+  /* On mobile: show Accept-now (non-ghost), hide refresh + override (ghost) */
+  .td-actions button.ghost { display: none; }
+  .td-actions:empty { display: none; }
+
+  /* past rows: lighter */
+  .sessions tr.past { opacity: .6; }
 
   /* Logs filter bar vertical */
   .filter-bar { flex-direction: column; align-items: stretch; }

@@ -324,9 +324,11 @@ function renderSession(s, gKey) {
     patchGroupHeader(gKey);
   });
   const tdCb = document.createElement("td");
+  tdCb.className = "td-cb";
   tdCb.appendChild(cb);
 
   const tdInvite = document.createElement("td");
+  tdInvite.dataset.label = "Invite opens";
   if (s.inviteTime) {
     tdInvite.innerHTML = `${escapeHtml(fmt(s.inviteTime))}<br/><small class="muted">${escapeHtml(fmtRel(s.inviteTime))}</small>`;
   } else {
@@ -334,8 +336,10 @@ function renderSession(s, gKey) {
   }
 
   const tdStart = document.createElement("td");
+  tdStart.dataset.label = "Starts";
   tdStart.textContent = fmt(s.startTimestamp);
   const tdEnd = document.createElement("td");
+  tdEnd.dataset.label = "Ends";
   tdEnd.textContent = fmt(s.endTimestamp);
 
   const tdStatus = document.createElement("td");
@@ -349,6 +353,7 @@ function renderSession(s, gKey) {
   const paymentBadge = s.paymentRequired
     ? ` <span class="status-pill status-pill--payment" title="Payment required — accept manually in the Spond app">💳 payment</span>`
     : "";
+  tdStatus.dataset.label = "Status";
   tdStatus.innerHTML = `<span class="status-pill status-pill--${statusCls}">${statusLabel}</span>${paymentBadge}`;
 
   const tdOv = document.createElement("td");
