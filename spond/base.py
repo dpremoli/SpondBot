@@ -30,7 +30,18 @@ class _SpondBase(ABC):
                 except AuthenticationError as e:
                     await self.clientsession.close()
                     raise e
-            return await func(self, *args, **kwargs)
+            try:
+                return await func(self, *args, **kwargs)
+            except ValueError as e:
+                if "401" in str(e) and "tokenExpired" in str(e):
+                    self.token = None
+                    try:
+                        await self.login()
+                    except AuthenticationError as auth_e:
+                        await self.clientsession.close()
+                        raise auth_e
+                    return await func(self, *args, **kwargs)
+                raise
 
         return wrapper
 
