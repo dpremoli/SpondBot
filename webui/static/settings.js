@@ -79,6 +79,7 @@ async function saveCreds(ev) {
 async function loadDefaults() {
   const { defaults, dry_run, group_by } = await api("/api/settings");
   $("#initial_delay").value = defaults.initial_delay;
+  $("#initial_delay_max").value = defaults.initial_delay_max ?? defaults.initial_delay;
   $("#retry_count").value = defaults.retry_count;
   $("#retry_interval").value = defaults.retry_interval;
   $("#response").value = defaults.response;
@@ -90,6 +91,7 @@ async function saveDefaults(ev) {
   ev.preventDefault();
   const body = {
     initial_delay: parseFloat($("#initial_delay").value),
+    initial_delay_max: parseFloat($("#initial_delay_max").value),
     retry_count: parseInt($("#retry_count").value, 10),
     retry_interval: parseFloat($("#retry_interval").value),
     response: $("#response").value,
@@ -125,7 +127,7 @@ async function loadOverrides() {
   tbl.innerHTML = `
     <thead>
       <tr>
-        <th>Event</th><th>Initial delay</th><th>Retry count</th>
+        <th>Event</th><th>Min delay</th><th>Max delay</th><th>Retry count</th>
         <th>Retry interval</th><th>Response</th><th></th>
       </tr>
     </thead>
@@ -139,6 +141,7 @@ async function loadOverrides() {
     tr.innerHTML = `
       <td>${escapeHtml(e ? e.heading : id)}<br/><small class="muted">${escapeHtml(e ? fmt(e.startTimestamp) : id)}</small></td>
       <td>${ov.initial_delay ?? "—"}</td>
+      <td>${ov.initial_delay_max ?? "—"}</td>
       <td>${ov.retry_count ?? "—"}</td>
       <td>${ov.retry_interval ?? "—"}</td>
       <td>${escapeHtml(ov.response ?? "—")}</td>

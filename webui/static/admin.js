@@ -17,6 +17,7 @@
     users: document.getElementById('tab-users'),
     activity: document.getElementById('tab-activity'),
     bots: document.getElementById('tab-bots'),
+    events: document.getElementById('tab-events'),
   };
 
   tabBtns.forEach(btn => btn.addEventListener('click', () => {
@@ -25,12 +26,15 @@
     Object.entries(tabPanels).forEach(([k, el]) => el.hidden = k !== btn.dataset.tab);
     if (btn.dataset.tab === 'activity') loadActivity();
     if (btn.dataset.tab === 'bots') loadBots();
+    if (btn.dataset.tab === 'events') loadAdminEvents();
   }));
 
   function init() {
     loadUsers();
     document.getElementById('activity-reload').addEventListener('click', loadActivity);
     document.getElementById('bots-reload').addEventListener('click', loadBots);
+    document.getElementById('events-user-select').addEventListener('change', loadAdminEvents);
+    document.getElementById('events-reload').addEventListener('click', loadAdminEvents);
   }
 
   // ---- Users ----
@@ -55,6 +59,17 @@
       sel.appendChild(opt);
     });
     if (prev) sel.value = prev;
+
+    // Populate events user select
+    const evSel = document.getElementById('events-user-select');
+    const evPrev = evSel.value;
+    evSel.innerHTML = '<option value="">Select user…</option>';
+    users.forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.id; opt.textContent = u.username;
+      evSel.appendChild(opt);
+    });
+    if (evPrev) evSel.value = evPrev;
   }
 
   function renderUsers(users) {
@@ -229,6 +244,63 @@
 
       grid.appendChild(card);
     });
+  }
+
+  // ---- Admin Events ----
+  async function loadAdminEvents() {
+    const uid = document.getElementById('events-user-select').value;
+    const container = document.getElementById('admin-events-list');
+    if (!uid) { container.innerHTML = '<p class="muted">Select a user to view their events.</p>'; return; }
+    container.innerHTML = '<p class="muted">Loading…</p>';
+    const res = await fetch(`/admin/users/${uid}/events`);
+    if (!res.ok) { container.innerHTML = `<p class="err-text">Failed to load events.</p>`; return; }
+    const { events } = await res.json();
+    if (!events || !events.length) { container.innerHTML = '<p class="muted">No events cached for this user.</p>'; return; }
+    const tbl = document.createElement('table');
+    tbl.className = 'data-table';
+    tbl.innerHTML = `<thead><tr><th>Event</th><th>Start</th><th>Status</th><th>Actions</th></tr></thead>`;
+    const tbody = document.createElement('tbody');
+    events.sort((a, b) => (a.startTimestamp || '').localeCompare(b.startTimestamp || ''));
+    for (const ev of events) {
+      const tr = document.createElement('tr');
+      const start = ev.startTimestamp ? new Date(ev.startTimestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—';
+      let statusBadge;
+      if (ev.accepted) statusBadge = '<span class="tag" style="background:var(--ok);color:#fff">Accepted</span>';
+      else if (ev.waitlisted) statusBadge = '<span class="tag">Waitlisted</span>';
+      else if (ev.failed) statusBadge = '<span class="tag err-btn">Failed</span>';
+      else if (ev.paymentRequired) statusBadge = '<span class="tag">Payment required</span>';
+      else if (ev.armed_ts) {
+        const d = new Date(ev.armed_ts * 1000);
+        statusBadge = `<span class="tag">Scheduled ${d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</span>`;
+      } else if (ev.selected) statusBadge = '<span class="tag">Selected</span>';
+      else statusBadge = '<span class="muted">—</span>';
+      tr.innerHTML = `
+        <td>${esc(ev.heading || ev.id)}<br/><small class="muted">${esc(ev.groupName || '')}</small></td>
+        <td class="muted" style="font-size:.82rem">${start}</td>
+        <td>${statusBadge}</td>
+        <td>
+          <div class="td-actions">
+            <button class="ghost small" data-action="accept" data-eid="${esc(ev.id)}" data-uid="${esc(uid)}" ${ev.accepted ? 'disabled' : ''}>Accept</button>
+            <button class="ghost small err-btn" data-action="decline" data-eid="${esc(ev.id)}" data-uid="${esc(uid)}">Decline</button>
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+    container.innerHTML = '';
+    container.appendChild(tbl);
+
+    container.querySelectorAll('[data-action="accept"]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true; btn.textContent = '…';
+      const r = await fetch(`/admin/users/${btn.dataset.uid}/events/${btn.dataset.eid}/accept`, { method: 'POST' });
+      btn.textContent = r.ok ? 'Fired' : 'Error';
+    }));
+    container.querySelectorAll('[data-action="decline"]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('Decline this event on behalf of the user?')) return;
+      btn.disabled = true; btn.textContent = '…';
+      const r = await fetch(`/admin/users/${btn.dataset.uid}/events/${btn.dataset.eid}/decline`, { method: 'POST' });
+      btn.textContent = r.ok ? 'Fired' : 'Error';
+    }));
   }
 
   function esc(s) {
