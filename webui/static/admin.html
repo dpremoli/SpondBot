@@ -40,6 +40,7 @@
         <button class="tab-btn tab-btn--active" data-tab="users">Users</button>
         <button class="tab-btn" data-tab="activity">Activity</button>
         <button class="tab-btn" data-tab="bots">Bot Status</button>
+        <button class="tab-btn" data-tab="events">Events</button>
       </div>
 
       <!-- Users tab -->
@@ -83,6 +84,18 @@
           <button id="bots-reload" class="ghost small">Reload</button>
         </div>
         <div id="bots-grid"></div>
+      </div>
+
+      <!-- Events tab -->
+      <div id="tab-events" class="tab-panel" hidden>
+        <div class="card-header" style="margin-bottom:.75rem">
+          <h2 style="margin:0">User Events</h2>
+          <div class="toolbar">
+            <select id="events-user-select"><option value="">Select user…</option></select>
+            <button id="events-reload" class="ghost small">Reload</button>
+          </div>
+        </div>
+        <div id="admin-events-list"></div>
       </div>
     </main>
   </div>

@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import os
+import random
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -66,6 +67,7 @@ MANUAL_REFRESH_MIN_INTERVAL = int(os.environ.get("SPONDBOT_MANUAL_REFRESH_MIN", 
 
 DEFAULT_SETTINGS = {
     "initial_delay": 0.3,
+    "initial_delay_max": 0.3,
     "retry_count": 10,
     "retry_interval": 0.3,
     "response": "accepted",
@@ -523,11 +525,15 @@ class Scheduler:
                 continue
             per = settings_for(cfg, eid)
             invite_ts = _available_epoch(e)
-            fire_ts = invite_ts + float(per["initial_delay"])
+            delay_min = float(per["initial_delay"])
+            delay_max = float(per.get("initial_delay_max") or delay_min)
+            actual_delay = random.uniform(delay_min, max(delay_min, delay_max))
+            fire_ts = invite_ts + actual_delay
             delay = max(0.0, fire_ts - now)
+            range_str = f" (range {delay_min:.1f}–{delay_max:.1f}s)" if delay_max != delay_min else ""
             log.info(
-                "arming auto-%s for %s in %.1fs (%s) using member_id=%s group=%s%s (user=%s)",
-                per["response"], eid, delay, e.get("heading"), uid, group_id,
+                "arming auto-%s for %s in %.1fs%s (%s) using member_id=%s group=%s%s (user=%s)",
+                per["response"], eid, delay, range_str, e.get("heading"), uid, group_id,
                 " [dry-run]" if cfg.get("dry_run") else "", self._user_id,
             )
             self._scheduled_fire_ts[eid] = fire_ts
@@ -563,11 +569,15 @@ class Scheduler:
             existing.cancel()
         per = settings_for(cfg, eid)
         invite_ts = _available_epoch(e)
-        fire_ts = invite_ts + float(per["initial_delay"])
+        delay_min = float(per["initial_delay"])
+        delay_max = float(per.get("initial_delay_max") or delay_min)
+        actual_delay = random.uniform(delay_min, max(delay_min, delay_max))
+        fire_ts = invite_ts + actual_delay
         delay = max(0.0, fire_ts - time.time())
+        range_str = f" (range {delay_min:.1f}–{delay_max:.1f}s)" if delay_max != delay_min else ""
         log.info(
-            "refresh: rearming auto-%s for %s in %.1fs (%s) using member_id=%s (user=%s)",
-            per["response"], eid, delay, e.get("heading"), uid, self._user_id,
+            "refresh: rearming auto-%s for %s in %.1fs%s (%s) using member_id=%s (user=%s)",
+            per["response"], eid, delay, range_str, e.get("heading"), uid, self._user_id,
         )
         self._scheduled_fire_ts[eid] = fire_ts
         self._scheduled[eid] = asyncio.create_task(
@@ -950,6 +960,114 @@ async def admin_status(_: dict = Depends(get_admin_user)) -> list:
     return list(active.values())
 
 
+@app.get("/admin/users/{uid}/events")
+async def admin_get_user_events(
+    uid: str, _: dict = Depends(get_admin_user)
+) -> dict[str, Any]:
+    cfg = load_config(uid)
+    sch = await manager.get(uid)
+    selected = set(cfg.get("selected_event_ids") or [])
+    event_settings = cfg.get("event_settings") or {}
+    spond_uid = sch._cached_user_id
+    events = []
+    for e in sch.events:
+        gid = (e.get("group") or {}).get("id") or e.get("groupId")
+        responses = e.get("responses") or {}
+        in_accepted = spond_uid and spond_uid in (responses.get("acceptedIds") or [])
+        in_waitlist = spond_uid and spond_uid in (responses.get("waitinglistIds") or [])
+        accepted = bool(in_accepted) or e["id"] in sch.accepted
+        waitlisted = bool(in_waitlist) or e["id"] in sch.waitlisted
+        loc_name = _extract_location(e)
+        events.append({
+            "id": e["id"],
+            "heading": e.get("heading"),
+            "groupId": gid,
+            "groupName": (e.get("group") or {}).get("name"),
+            "startTimestamp": e.get("startTimestamp"),
+            "endTimestamp": e.get("endTimestamp"),
+            "inviteTime": e.get("inviteTime") or e.get("invitedTimestamp"),
+            "selected": e["id"] in selected,
+            "accepted": accepted and not waitlisted,
+            "waitlisted": waitlisted,
+            "failed": e["id"] in sch._permanently_failed,
+            "paymentRequired": e["id"] in sch._payment_required or _is_payment_required(e),
+            "hasOverride": e["id"] in event_settings,
+            "armed_ts": sch._scheduled_fire_ts.get(e["id"]),
+            "location": loc_name,
+            "acceptedCount": len(responses.get("acceptedIds") or []),
+            "declinedCount": len(responses.get("declinedIds") or []),
+            "waitinglistCount": len(responses.get("waitinglistIds") or []),
+            "unansweredCount": len(responses.get("unansweredIds") or []),
+            "maxAccepted": e.get("maxAccepted"),
+            "isFull": bool(e.get("responses", {}).get("waitinglistIds")),
+        })
+    return {
+        "events": events,
+        "defaults": cfg.get("defaults") or DEFAULT_SETTINGS,
+        "group_by": cfg.get("group_by", "heading"),
+    }
+
+
+@app.post("/admin/users/{uid}/events/{event_id}/accept")
+async def admin_accept_event(
+    uid: str, event_id: str, _: dict = Depends(get_admin_user)
+) -> dict[str, Any]:
+    cfg = load_config(uid)
+    if not cfg.get("username") or not cfg.get("password"):
+        raise HTTPException(400, "No credentials configured for this user")
+    sch = await manager.get(uid)
+    event = next((e for e in sch.events if e["id"] == event_id), None)
+    if not event:
+        raise HTTPException(404, "Event not found in cache — try refreshing")
+    if event_id in sch._permanently_failed:
+        sch._permanently_failed.discard(event_id)
+        async with sch._id_set_lock:
+            _save_id_set(_failed_path(uid), sch._permanently_failed)
+    per = settings_for(cfg, event_id)
+    group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    member_id = sch._cached_member_ids.get(group_id) if group_id else None
+    member_id = member_id or sch._cached_user_id
+    existing = sch._scheduled.get(event_id)
+    if existing and not existing.done():
+        existing.cancel()
+    sch._scheduled[event_id] = asyncio.create_task(
+        sch._accept_later(
+            cfg["username"], cfg["password"], event_id, 0.0, per,
+            event.get("heading", ""), bool(cfg.get("dry_run")),
+            member_id, event.get("startTimestamp"),
+        )
+    )
+    return {"status": "fired", "event_id": event_id, "user_id": member_id}
+
+
+@app.post("/admin/users/{uid}/events/{event_id}/decline")
+async def admin_decline_event(
+    uid: str, event_id: str, _: dict = Depends(get_admin_user)
+) -> dict[str, Any]:
+    cfg = load_config(uid)
+    if not cfg.get("username") or not cfg.get("password"):
+        raise HTTPException(400, "No credentials configured for this user")
+    sch = await manager.get(uid)
+    event = next((e for e in sch.events if e["id"] == event_id), None)
+    if not event:
+        raise HTTPException(404, "Event not found in cache — try refreshing")
+    per = {**settings_for(cfg, event_id), "response": "declined", "retry_count": 0}
+    group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    member_id = sch._cached_member_ids.get(group_id) if group_id else None
+    member_id = member_id or sch._cached_user_id
+    existing = sch._scheduled.get(event_id)
+    if existing and not existing.done():
+        existing.cancel()
+    sch._scheduled[event_id] = asyncio.create_task(
+        sch._accept_later(
+            cfg["username"], cfg["password"], event_id, 0.0, per,
+            event.get("heading", ""), bool(cfg.get("dry_run")),
+            member_id, event.get("startTimestamp"),
+        )
+    )
+    return {"status": "fired", "event_id": event_id, "user_id": member_id}
+
+
 # ---------- existing API routes (now user-scoped) ----------
 
 class Credentials(BaseModel):
@@ -963,7 +1081,8 @@ class Selection(BaseModel):
 
 
 class Settings(BaseModel):
-    initial_delay: float = Field(ge=0, le=60)
+    initial_delay: float = Field(ge=0, le=300)
+    initial_delay_max: float = Field(ge=0, le=300)
     retry_count: int = Field(ge=0, le=100)
     retry_interval: float = Field(ge=0.05, le=60)
     response: str = Field(pattern="^(accepted|declined|unconfirmed)$")
@@ -972,7 +1091,8 @@ class Settings(BaseModel):
 
 
 class EventSettings(BaseModel):
-    initial_delay: float | None = Field(default=None, ge=0, le=60)
+    initial_delay: float | None = Field(default=None, ge=0, le=300)
+    initial_delay_max: float | None = Field(default=None, ge=0, le=300)
     retry_count: int | None = Field(default=None, ge=0, le=100)
     retry_interval: float | None = Field(default=None, ge=0.05, le=60)
     response: str | None = Field(default=None, pattern="^(accepted|declined|unconfirmed)$")
@@ -1203,6 +1323,7 @@ async def api_save_settings(
     cfg = load_config(uid)
     cfg["defaults"] = {
         "initial_delay": body.initial_delay,
+        "initial_delay_max": body.initial_delay_max,
         "retry_count": body.retry_count,
         "retry_interval": body.retry_interval,
         "response": body.response,
