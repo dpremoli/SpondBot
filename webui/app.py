@@ -179,9 +179,11 @@ def save_config(cfg: dict[str, Any], user_id: str) -> None:
     _config_cache[user_id] = dict(cfg)
 
 
-def settings_for(cfg: dict[str, Any], event_id: str) -> dict[str, Any]:
+def settings_for(cfg: dict[str, Any], event_id: str, group_id: str | None = None) -> dict[str, Any]:
     merged = dict(DEFAULT_SETTINGS)
     merged.update(cfg.get("defaults") or {})
+    if group_id:
+        merged.update((cfg.get("group_settings") or {}).get(group_id) or {})
     merged.update((cfg.get("event_settings") or {}).get(event_id) or {})
     return merged
 
@@ -523,7 +525,7 @@ class Scheduler:
                 continue
             if eid in self._scheduled and not self._scheduled[eid].done():
                 continue
-            per = settings_for(cfg, eid)
+            per = settings_for(cfg, eid, group_id)
             invite_ts = _available_epoch(e)
             delay_min = float(per["initial_delay"])
             delay_max = float(per.get("initial_delay_max") or delay_min)
@@ -567,7 +569,7 @@ class Scheduler:
         existing = self._scheduled.get(eid)
         if existing and not existing.done():
             existing.cancel()
-        per = settings_for(cfg, eid)
+        per = settings_for(cfg, eid, group_id)
         invite_ts = _available_epoch(e)
         delay_min = float(per["initial_delay"])
         delay_max = float(per.get("initial_delay_max") or delay_min)
@@ -1023,8 +1025,8 @@ async def admin_accept_event(
         sch._permanently_failed.discard(event_id)
         async with sch._id_set_lock:
             _save_id_set(_failed_path(uid), sch._permanently_failed)
-    per = settings_for(cfg, event_id)
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    per = settings_for(cfg, event_id, group_id)
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
@@ -1051,8 +1053,8 @@ async def admin_decline_event(
     event = next((e for e in sch.events if e["id"] == event_id), None)
     if not event:
         raise HTTPException(404, "Event not found in cache — try refreshing")
-    per = {**settings_for(cfg, event_id), "response": "declined", "retry_count": 0}
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    per = {**settings_for(cfg, event_id, group_id), "response": "declined", "retry_count": 0}
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
@@ -1066,6 +1068,56 @@ async def admin_decline_event(
         )
     )
     return {"status": "fired", "event_id": event_id, "user_id": member_id}
+
+
+@app.get("/admin/users/{uid}/groups")
+async def admin_get_user_groups(
+    uid: str, _: dict = Depends(get_admin_user)
+) -> list[dict]:
+    sch = await manager.get(uid)
+    seen: dict[str, str] = {}
+    for e in sch.events:
+        gid = (e.get("group") or {}).get("id") or e.get("groupId")
+        gname = (e.get("group") or {}).get("name") or gid
+        if gid and gid not in seen:
+            seen[gid] = gname
+    return [{"id": gid, "name": name} for gid, name in seen.items()]
+
+
+@app.get("/admin/users/{uid}/group-settings")
+async def admin_get_group_settings(
+    uid: str, _: dict = Depends(get_admin_user)
+) -> dict:
+    cfg = load_config(uid)
+    return {"group_settings": cfg.get("group_settings") or {}}
+
+
+@app.post("/admin/users/{uid}/group-settings/{group_id}")
+async def admin_set_group_settings(
+    uid: str, group_id: str, body: EventSettings, _: dict = Depends(get_admin_user)
+) -> dict[str, str]:
+    cfg = load_config(uid)
+    overrides = cfg.get("group_settings") or {}
+    payload = {k: v for k, v in body.model_dump().items() if v is not None}
+    if payload:
+        overrides[group_id] = payload
+    else:
+        overrides.pop(group_id, None)
+    cfg["group_settings"] = overrides
+    save_config(cfg, uid)
+    return {"status": "ok"}
+
+
+@app.delete("/admin/users/{uid}/group-settings/{group_id}")
+async def admin_delete_group_settings(
+    uid: str, group_id: str, _: dict = Depends(get_admin_user)
+) -> dict[str, str]:
+    cfg = load_config(uid)
+    overrides = cfg.get("group_settings") or {}
+    overrides.pop(group_id, None)
+    cfg["group_settings"] = overrides
+    save_config(cfg, uid)
+    return {"status": "ok"}
 
 
 # ---------- existing API routes (now user-scoped) ----------
@@ -1205,8 +1257,8 @@ async def api_accept_now(
         sch._permanently_failed.discard(event_id)
         async with sch._id_set_lock:
             _save_id_set(_failed_path(uid), sch._permanently_failed)
-    per = settings_for(cfg, event_id)
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    per = settings_for(cfg, event_id, group_id)
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
@@ -1234,8 +1286,8 @@ async def api_decline_now(
     event = next((e for e in sch.events if e["id"] == event_id), None)
     if not event:
         raise HTTPException(404, "Event not found in cache — try refreshing")
-    per = {**settings_for(cfg, event_id), "response": "declined", "retry_count": 0}
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
+    per = {**settings_for(cfg, event_id, group_id), "response": "declined", "retry_count": 0}
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
