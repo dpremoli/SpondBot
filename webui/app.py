@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -179,11 +180,20 @@ def save_config(cfg: dict[str, Any], user_id: str) -> None:
     _config_cache[user_id] = dict(cfg)
 
 
-def settings_for(cfg: dict[str, Any], event_id: str, group_id: str | None = None) -> dict[str, Any]:
+def settings_for(
+    cfg: dict[str, Any],
+    event_id: str,
+    group_id: str | None = None,
+    heading: str | None = None,
+) -> dict[str, Any]:
     merged = dict(DEFAULT_SETTINGS)
     merged.update(cfg.get("defaults") or {})
-    if group_id:
-        merged.update((cfg.get("group_settings") or {}).get(group_id) or {})
+    for ov in (cfg.get("bulk_overrides") or []):
+        t = ov.get("type")
+        if t == "spond_group" and ov.get("target_id") == group_id:
+            merged.update(ov.get("settings") or {})
+        elif t == "event_heading" and ov.get("target_id") == heading:
+            merged.update(ov.get("settings") or {})
     merged.update((cfg.get("event_settings") or {}).get(event_id) or {})
     return merged
 
@@ -525,7 +535,7 @@ class Scheduler:
                 continue
             if eid in self._scheduled and not self._scheduled[eid].done():
                 continue
-            per = settings_for(cfg, eid, group_id)
+            per = settings_for(cfg, eid, group_id, heading=e.get("heading"))
             invite_ts = _available_epoch(e)
             delay_min = float(per["initial_delay"])
             delay_max = float(per.get("initial_delay_max") or delay_min)
@@ -569,7 +579,7 @@ class Scheduler:
         existing = self._scheduled.get(eid)
         if existing and not existing.done():
             existing.cancel()
-        per = settings_for(cfg, eid, group_id)
+        per = settings_for(cfg, eid, group_id, heading=e.get("heading"))
         invite_ts = _available_epoch(e)
         delay_min = float(per["initial_delay"])
         delay_max = float(per.get("initial_delay_max") or delay_min)
@@ -1026,7 +1036,7 @@ async def admin_accept_event(
         async with sch._id_set_lock:
             _save_id_set(_failed_path(uid), sch._permanently_failed)
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
-    per = settings_for(cfg, event_id, group_id)
+    per = settings_for(cfg, event_id, group_id, heading=event.get("heading"))
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
@@ -1054,7 +1064,7 @@ async def admin_decline_event(
     if not event:
         raise HTTPException(404, "Event not found in cache — try refreshing")
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
-    per = {**settings_for(cfg, event_id, group_id), "response": "declined", "retry_count": 0}
+    per = {**settings_for(cfg, event_id, group_id, heading=event.get("heading")), "response": "declined", "retry_count": 0}
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
@@ -1091,38 +1101,82 @@ async def admin_get_user_groups(
     return [{"id": gid, "name": name} for gid, name in seen.items()]
 
 
-@app.get("/admin/users/{uid}/group-settings")
-async def admin_get_group_settings(
+@app.get("/admin/users/{uid}/headings")
+async def admin_get_user_headings(
+    uid: str, _: dict = Depends(get_admin_user)
+) -> list[dict]:
+    sch = await manager.get(uid)
+    seen: list[str] = []
+    for e in sch.events:
+        h = e.get("heading")
+        if h and h not in seen:
+            seen.append(h)
+    return [{"id": h, "name": h} for h in seen]
+
+
+@app.get("/admin/users/{uid}/bulk-overrides")
+async def admin_get_bulk_overrides(
     uid: str, _: dict = Depends(get_admin_user)
 ) -> dict:
     cfg = load_config(uid)
-    return {"group_settings": cfg.get("group_settings") or {}}
+    return {"overrides": cfg.get("bulk_overrides") or []}
 
 
-@app.post("/admin/users/{uid}/group-settings/{group_id}")
-async def admin_set_group_settings(
-    uid: str, group_id: str, body: EventSettings, _: dict = Depends(get_admin_user)
+class BulkOverrideCreate(BaseModel):
+    type: str = Field(pattern="^(spond_group|event_heading)$")
+    target_id: str
+    target_name: str
+    settings: EventSettings
+
+
+class BulkOverridePatch(BaseModel):
+    settings: EventSettings
+
+
+@app.post("/admin/users/{uid}/bulk-overrides")
+async def admin_create_bulk_override(
+    uid: str, body: BulkOverrideCreate, _: dict = Depends(get_admin_user)
 ) -> dict[str, str]:
     cfg = load_config(uid)
-    overrides = cfg.get("group_settings") or {}
-    payload = {k: v for k, v in body.model_dump().items() if v is not None}
-    if payload:
-        overrides[group_id] = payload
-    else:
-        overrides.pop(group_id, None)
-    cfg["group_settings"] = overrides
+    overrides = list(cfg.get("bulk_overrides") or [])
+    payload = {k: v for k, v in body.settings.model_dump().items() if v is not None}
+    overrides.append({
+        "id": secrets.token_hex(8),
+        "type": body.type,
+        "target_id": body.target_id,
+        "target_name": body.target_name,
+        "settings": payload,
+    })
+    cfg["bulk_overrides"] = overrides
     save_config(cfg, uid)
     return {"status": "ok"}
 
 
-@app.delete("/admin/users/{uid}/group-settings/{group_id}")
-async def admin_delete_group_settings(
-    uid: str, group_id: str, _: dict = Depends(get_admin_user)
+@app.patch("/admin/users/{uid}/bulk-overrides/{oid}")
+async def admin_update_bulk_override(
+    uid: str, oid: str, body: BulkOverridePatch, _: dict = Depends(get_admin_user)
 ) -> dict[str, str]:
     cfg = load_config(uid)
-    overrides = cfg.get("group_settings") or {}
-    overrides.pop(group_id, None)
-    cfg["group_settings"] = overrides
+    overrides = list(cfg.get("bulk_overrides") or [])
+    for ov in overrides:
+        if ov.get("id") == oid:
+            payload = {k: v for k, v in body.settings.model_dump().items() if v is not None}
+            ov["settings"] = payload
+            break
+    else:
+        raise HTTPException(404, f"Override {oid} not found")
+    cfg["bulk_overrides"] = overrides
+    save_config(cfg, uid)
+    return {"status": "ok"}
+
+
+@app.delete("/admin/users/{uid}/bulk-overrides/{oid}")
+async def admin_delete_bulk_override(
+    uid: str, oid: str, _: dict = Depends(get_admin_user)
+) -> dict[str, str]:
+    cfg = load_config(uid)
+    overrides = [ov for ov in (cfg.get("bulk_overrides") or []) if ov.get("id") != oid]
+    cfg["bulk_overrides"] = overrides
     save_config(cfg, uid)
     return {"status": "ok"}
 
@@ -1265,7 +1319,7 @@ async def api_accept_now(
         async with sch._id_set_lock:
             _save_id_set(_failed_path(uid), sch._permanently_failed)
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
-    per = settings_for(cfg, event_id, group_id)
+    per = settings_for(cfg, event_id, group_id, heading=event.get("heading"))
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
@@ -1294,7 +1348,7 @@ async def api_decline_now(
     if not event:
         raise HTTPException(404, "Event not found in cache — try refreshing")
     group_id = ((event.get("recipients") or {}).get("group") or {}).get("id")
-    per = {**settings_for(cfg, event_id, group_id), "response": "declined", "retry_count": 0}
+    per = {**settings_for(cfg, event_id, group_id, heading=event.get("heading")), "response": "declined", "retry_count": 0}
     member_id = sch._cached_member_ids.get(group_id) if group_id else None
     member_id = member_id or sch._cached_user_id
     existing = sch._scheduled.get(event_id)
