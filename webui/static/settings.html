@@ -99,6 +99,36 @@
         </form>
       </section>
 
+      <section class="card" id="section-group-overrides">
+        <h2>Group overrides</h2>
+        <p class="muted">Settings applied to every event in a group for a specific user. Takes precedence over user defaults but is overridden by per-event settings.</p>
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem">
+          <select id="go-user-select" style="flex:1;min-width:140px"><option value="">Select user…</option></select>
+          <select id="go-group-select" style="flex:1;min-width:140px" disabled><option value="">Select group…</option></select>
+        </div>
+        <form id="go-form" hidden>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem .75rem">
+            <label>Min delay (s)<input type="number" step="0.05" min="0" id="go-initial-delay" placeholder="—" /></label>
+            <label>Max delay (s)<input type="number" step="0.05" min="0" id="go-initial-delay-max" placeholder="—" /></label>
+            <label>Retry count<input type="number" step="1" min="0" id="go-retry-count" placeholder="—" /></label>
+            <label>Retry interval (s)<input type="number" step="0.05" min="0.05" id="go-retry-interval" placeholder="—" /></label>
+            <label>Response
+              <select id="go-response">
+                <option value="">— (use default) —</option>
+                <option value="accepted">accepted</option>
+                <option value="declined">declined</option>
+                <option value="unconfirmed">unconfirmed</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-footer" style="margin-top:.75rem">
+            <button type="submit">Save group override</button>
+            <span id="go-status" class="status"></span>
+          </div>
+        </form>
+        <div id="go-overrides-table"></div>
+      </section>
+
       <section class="card" id="section-overrides">
         <h2>Per-event overrides</h2>
         <p class="muted">Anything set here takes precedence over the defaults for that specific event.</p>

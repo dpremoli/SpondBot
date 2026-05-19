@@ -26,6 +26,10 @@ fetch("/auth/me").then(r => {
     if (botSection) botSection.hidden = true;
     const ovSection = $("#section-overrides");
     if (ovSection) ovSection.hidden = true;
+    const goSection = $("#section-group-overrides");
+    if (goSection) goSection.hidden = true;
+  } else {
+    initGroupOverrides();
   }
 });
 
@@ -192,6 +196,130 @@ async function loadVersion() {
     const vEl = $("#nav-version");
     if (vEl && s.version) vEl.textContent = `v${s.version}`;
   } catch { /* non-critical */ }
+}
+
+// ---- Group overrides ----
+let _goGroupMap = {}; // group_id → name, for the current user
+
+async function initGroupOverrides() {
+  // Populate user dropdown
+  try {
+    const users = await api("/admin/users");
+    const sel = $("#go-user-select");
+    users.forEach(u => {
+      const opt = document.createElement("option");
+      opt.value = u.id; opt.textContent = u.username;
+      sel.appendChild(opt);
+    });
+  } catch { /* non-critical */ }
+
+  $("#go-user-select").addEventListener("change", async () => {
+    const uid = $("#go-user-select").value;
+    const groupSel = $("#go-group-select");
+    groupSel.innerHTML = '<option value="">Select group…</option>';
+    groupSel.disabled = !uid;
+    $("#go-form").hidden = true;
+    $("#go-overrides-table").innerHTML = "";
+    _goGroupMap = {};
+    if (!uid) return;
+    await loadGoGroups(uid);
+    await loadGoOverridesTable(uid);
+  });
+
+  $("#go-group-select").addEventListener("change", async () => {
+    const uid = $("#go-user-select").value;
+    const gid = $("#go-group-select").value;
+    if (!uid || !gid) { $("#go-form").hidden = true; return; }
+    // Pre-fill form with existing override if any
+    try {
+      const { group_settings } = await api(`/admin/users/${uid}/group-settings`);
+      const ov = (group_settings || {})[gid] || {};
+      $("#go-initial-delay").value = ov.initial_delay ?? "";
+      $("#go-initial-delay-max").value = ov.initial_delay_max ?? "";
+      $("#go-retry-count").value = ov.retry_count ?? "";
+      $("#go-retry-interval").value = ov.retry_interval ?? "";
+      $("#go-response").value = ov.response ?? "";
+    } catch { /* ignore */ }
+    $("#go-form").hidden = false;
+    $("#go-status").textContent = "";
+  });
+
+  $("#go-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const uid = $("#go-user-select").value;
+    const gid = $("#go-group-select").value;
+    if (!uid || !gid) return;
+    const body = {};
+    const minD = parseFloat($("#go-initial-delay").value);
+    const maxD = parseFloat($("#go-initial-delay-max").value);
+    const rc   = parseInt($("#go-retry-count").value, 10);
+    const ri   = parseFloat($("#go-retry-interval").value);
+    const resp = $("#go-response").value;
+    if (!isNaN(minD)) body.initial_delay = minD;
+    if (!isNaN(maxD)) body.initial_delay_max = maxD;
+    if (!isNaN(rc))   body.retry_count = rc;
+    if (!isNaN(ri))   body.retry_interval = ri;
+    if (resp)         body.response = resp;
+    const status = $("#go-status");
+    try {
+      await api(`/admin/users/${uid}/group-settings/${gid}`, { method: "POST", body: JSON.stringify(body) });
+      status.textContent = "Saved";
+      status.className = "status ok";
+      await loadGoOverridesTable(uid);
+    } catch (err) {
+      status.textContent = err.message;
+      status.className = "status err";
+    }
+  });
+}
+
+async function loadGoGroups(uid) {
+  const groups = await api(`/admin/users/${uid}/groups`);
+  const sel = $("#go-group-select");
+  sel.innerHTML = '<option value="">Select group…</option>';
+  _goGroupMap = {};
+  groups.forEach(g => {
+    _goGroupMap[g.id] = g.name;
+    const opt = document.createElement("option");
+    opt.value = g.id; opt.textContent = g.name;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadGoOverridesTable(uid) {
+  const container = $("#go-overrides-table");
+  container.innerHTML = "";
+  const { group_settings } = await api(`/admin/users/${uid}/group-settings`);
+  const entries = Object.entries(group_settings || {});
+  if (!entries.length) {
+    container.innerHTML = '<p class="muted" style="margin-top:.75rem">No group overrides yet.</p>';
+    return;
+  }
+  const tbl = document.createElement("table");
+  tbl.innerHTML = `
+    <thead><tr>
+      <th>Group</th><th>Min delay</th><th>Max delay</th>
+      <th>Retry count</th><th>Retry interval</th><th>Response</th><th></th>
+    </tr></thead>`;
+  const tbody = document.createElement("tbody");
+  for (const [gid, ov] of entries) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(_goGroupMap[gid] || gid)}</td>
+      <td>${ov.initial_delay ?? "—"}</td>
+      <td>${ov.initial_delay_max ?? "—"}</td>
+      <td>${ov.retry_count ?? "—"}</td>
+      <td>${ov.retry_interval ?? "—"}</td>
+      <td>${escapeHtml(ov.response ?? "—")}</td>
+      <td><button class="small" data-gid="${escapeHtml(gid)}">Clear</button></td>`;
+    tr.querySelector("button").addEventListener("click", async () => {
+      await api(`/admin/users/${uid}/group-settings/${gid}`, { method: "DELETE" });
+      await loadGoOverridesTable(uid);
+    });
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+  container.appendChild(tbl);
 }
 
 // ---- Wire up ----
