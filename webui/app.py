@@ -1077,8 +1077,15 @@ async def admin_get_user_groups(
     sch = await manager.get(uid)
     seen: dict[str, str] = {}
     for e in sch.events:
-        gid = (e.get("group") or {}).get("id") or e.get("groupId")
-        gname = (e.get("group") or {}).get("name") or gid
+        # recipients.group.id is what settings_for() receives at tick time — use it as the key
+        rec_group = (e.get("recipients") or {}).get("group") or {}
+        gid = rec_group.get("id")
+        # fall back to top-level group field (some event types omit recipients)
+        top_group = e.get("group") or {}
+        if not gid:
+            gid = top_group.get("id") or e.get("groupId")
+        # best available display name
+        gname = top_group.get("name") or rec_group.get("name") or gid
         if gid and gid not in seen:
             seen[gid] = gname
     return [{"id": gid, "name": name} for gid, name in seen.items()]
