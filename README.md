@@ -6,12 +6,21 @@ invites the moment they open. Built on the unofficial
 
 ## Features
 
-- **Instant accept** — fires the RSVP within a configurable delay (default
-  0.3 s) from when the invite window opens, with automatic retries.
+- **Instant accept** — fires the RSVP within a configurable delay range (default
+  0–0.3 s) from when the invite window opens, with automatic retries.  Set a
+  min/max range to randomise the exact fire time and avoid always being the
+  very first response.
 - **Multi-user** — each account gets its own bot scheduler; an admin can
   manage all users and monitor every bot from the dashboard.
+- **Bulk overrides** — apply custom settings to an entire event series (by
+  name) or a whole Spond group for any user, sitting between global defaults
+  and per-event overrides in priority.
 - **Per-event overrides** — set a different delay, retry count, response type,
   or dry-run flag for individual events.
+- **Admin events view** — admins can see and manually trigger accept/decline
+  for any user's cached events from the Users → Events tab.
+- **Auto token refresh** — if the Spond session token expires mid-run, the bot
+  re-authenticates and retries the failed request automatically.
 - **Calendar view** — switch between a grouped list and a month calendar.
 - **Activity logs** — full history of every accept attempt, filterable by
   event name and outcome.
@@ -84,11 +93,19 @@ private and never commit it.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Initial delay | 0.3 s | Time to wait after an invite opens before accepting |
+| Min delay | 0 s | Earliest time to fire after an invite opens |
+| Max delay | 0.3 s | Latest time to fire (bot picks a random moment between min and max) |
 | Retry count | 10 | Extra attempts if the first accept fails |
 | Retry interval | 0.3 s | Gap between retries |
 | Response | accepted | `accepted`, `declined`, or `unconfirmed` |
 | Dry-run | off | Log actions without sending anything to Spond |
+
+Settings can be overridden at three levels (highest priority wins):
+
+1. **Per-event** — set on the Events page via the Override button.
+2. **Bulk override** — scoped to an event series (by name) or a Spond group,
+   configured in **Settings → Bulk overrides**.
+3. **Bot Defaults** — the global fallback, configured in **Settings → Bot Defaults**.
 
 ## Project layout
 
