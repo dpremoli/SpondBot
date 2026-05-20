@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "spondbot"
-version = "1.0.0"
+version = "1.1.0"
 description = "Web UI that auto-accepts Spond event invites the moment they open."
 authors = ["dpremoli"]
 license = "GPL-3.0"
