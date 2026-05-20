@@ -199,6 +199,7 @@ async function loadVersion() {
 }
 
 // ---- Bulk overrides ----
+let _currentOverrides = []; // kept in sync by loadBulkOverrides
 
 function goSettingsFromForm(prefix) {
   const body = {};
@@ -228,24 +229,21 @@ function goSettingsSummary(s) {
 function renderOverrideCard(uid, ov, container) {
   const card = document.createElement("div");
   card.dataset.oid = ov.id;
-  card.style.cssText = "border:1px solid var(--border);border-radius:var(--radius);padding:.75rem 1rem;margin-bottom:.65rem";
+  card.style.cssText = "border:1px solid var(--border);border-radius:var(--radius);margin-bottom:.65rem;overflow:hidden";
 
   const typeBadge = ov.type === "event_heading" ? "Event series" : "Spond group";
   const summary = goSettingsSummary(ov.settings || {});
 
   card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem">
+    <div class="go-card-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem;padding:.75rem 1rem;cursor:pointer;user-select:none">
       <div>
         <span class="tag" style="font-size:.72rem;margin-right:.4rem">${escapeHtml(typeBadge)}</span>
         <strong>${escapeHtml(ov.target_name || ov.target_id)}</strong>
-        <div class="muted" style="font-size:.82rem;margin-top:.2rem">${escapeHtml(summary)}</div>
+        <div class="muted go-summary" style="font-size:.82rem;margin-top:.2rem">${escapeHtml(summary)}</div>
       </div>
-      <div class="td-actions" style="flex-shrink:0">
-        <button class="ghost small go-edit-btn">Edit</button>
-        <button class="ghost small err-btn go-del-btn">Delete</button>
-      </div>
+      <span class="go-chevron" style="font-size:.85rem;color:var(--muted);flex-shrink:0;margin-top:.15rem">▾</span>
     </div>
-    <div class="go-edit-form" hidden style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border)">
+    <div class="go-edit-form" hidden style="padding:.75rem 1rem 1rem;border-top:1px solid var(--border)">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem .75rem;margin-bottom:.65rem">
         <label>Min delay (s)<input type="number" step="0.05" min="0" class="go-ef-min-delay" placeholder="—" value="${ov.settings?.initial_delay ?? ""}" /></label>
         <label>Max delay (s)<input type="number" step="0.05" min="0" class="go-ef-max-delay" placeholder="—" value="${ov.settings?.initial_delay_max ?? ""}" /></label>
@@ -253,7 +251,7 @@ function renderOverrideCard(uid, ov, container) {
         <label>Retry interval (s)<input type="number" step="0.05" min="0.05" class="go-ef-retry-interval" placeholder="—" value="${ov.settings?.retry_interval ?? ""}" /></label>
         <label>Response
           <select class="go-ef-response">
-            <option value="">— (use default) —</option>
+            <option value="">— inherit from defaults —</option>
             <option value="accepted" ${ov.settings?.response === "accepted" ? "selected" : ""}>accepted</option>
             <option value="declined" ${ov.settings?.response === "declined" ? "selected" : ""}>declined</option>
             <option value="unconfirmed" ${ov.settings?.response === "unconfirmed" ? "selected" : ""}>unconfirmed</option>
@@ -263,17 +261,26 @@ function renderOverrideCard(uid, ov, container) {
       <div class="form-footer">
         <button class="go-ef-save">Save</button>
         <button class="ghost go-ef-cancel">Cancel</button>
+        <button class="ghost err-btn go-del-btn">Delete</button>
         <span class="go-ef-status status"></span>
       </div>
     </div>`;
 
+  const header = card.querySelector(".go-card-header");
   const editForm = card.querySelector(".go-edit-form");
-  card.querySelector(".go-edit-btn").addEventListener("click", () => {
-    editForm.hidden = !editForm.hidden;
+  const chevron = card.querySelector(".go-chevron");
+
+  header.addEventListener("click", () => {
+    const opening = editForm.hidden;
+    editForm.hidden = !opening;
+    chevron.textContent = opening ? "▴" : "▾";
   });
+
   card.querySelector(".go-ef-cancel").addEventListener("click", () => {
     editForm.hidden = true;
+    chevron.textContent = "▾";
   });
+
   card.querySelector(".go-ef-save").addEventListener("click", async () => {
     const body = {};
     const minD = parseFloat(card.querySelector(".go-ef-min-delay").value);
@@ -292,18 +299,23 @@ function renderOverrideCard(uid, ov, container) {
         method: "PATCH", body: JSON.stringify({ settings: body }),
       });
       ov.settings = body;
+      const idx = _currentOverrides.findIndex(o => o.id === ov.id);
+      if (idx !== -1) _currentOverrides[idx].settings = body;
       statusEl.textContent = "Saved";
       statusEl.className = "status ok";
-      card.querySelector(".muted").textContent = goSettingsSummary(body);
+      card.querySelector(".go-summary").textContent = goSettingsSummary(body);
       editForm.hidden = true;
+      chevron.textContent = "▾";
     } catch (err) {
       statusEl.textContent = err.message;
       statusEl.className = "status err";
     }
   });
+
   card.querySelector(".go-del-btn").addEventListener("click", async () => {
     if (!confirm(`Delete override for "${ov.target_name}"?`)) return;
     await api(`/admin/users/${uid}/bulk-overrides/${ov.id}`, { method: "DELETE" });
+    _currentOverrides = _currentOverrides.filter(o => o.id !== ov.id);
     card.remove();
     if (!container.querySelector("[data-oid]")) {
       container.innerHTML = '<p class="muted">No bulk overrides yet.</p>';
@@ -320,6 +332,7 @@ async function loadBulkOverrides(uid) {
   addBtn.hidden = !uid;
   if (!uid) return;
   const { overrides } = await api(`/admin/users/${uid}/bulk-overrides`);
+  _currentOverrides = overrides;
   if (!overrides.length) {
     container.innerHTML = '<p class="muted">No bulk overrides yet.</p>';
   } else {
@@ -368,16 +381,30 @@ async function initGroupOverrides() {
   });
 
   $("#goa-cancel").addEventListener("click", () => {
-    $("#go-add-form").hidden = false;
     const uid = $("#go-user-select").value;
     if (uid) $("#go-add-btn").hidden = false;
     $("#go-add-form").hidden = true;
+    $("#goa-dup-warn").hidden = true;
     $("#goa-status").textContent = "";
   });
 
   $("#goa-type").addEventListener("change", async () => {
     const uid = $("#go-user-select").value;
+    $("#goa-dup-warn").hidden = true;
     if (uid) await loadAddFormTargets(uid, $("#goa-type").value);
+  });
+
+  $("#goa-target").addEventListener("change", () => {
+    const type = $("#goa-type").value;
+    const targetId = $("#goa-target").value;
+    const dupWarn = $("#goa-dup-warn");
+    if (targetId && _currentOverrides.some(o => o.type === type && o.target_id === targetId)) {
+      const label = type === "event_heading" ? "event series" : "Spond group";
+      dupWarn.textContent = `⚠️ An override for this ${label} already exists. Tap its card above to edit it.`;
+      dupWarn.hidden = false;
+    } else {
+      dupWarn.hidden = true;
+    }
   });
 
   $("#goa-save").addEventListener("click", async () => {
