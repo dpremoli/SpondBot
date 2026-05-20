@@ -119,13 +119,14 @@
             <label>Target
               <select id="goa-target"><option value="">Loading…</option></select>
             </label>
+            <p id="goa-dup-warn" class="status err" hidden style="grid-column:1/-1;margin:0"></p>
             <label>Min delay (s)<input type="number" step="0.05" min="0" id="goa-min-delay" placeholder="—" /></label>
             <label>Max delay (s)<input type="number" step="0.05" min="0" id="goa-max-delay" placeholder="—" /></label>
             <label>Retry count<input type="number" step="1" min="0" id="goa-retry-count" placeholder="—" /></label>
             <label>Retry interval (s)<input type="number" step="0.05" min="0.05" id="goa-retry-interval" placeholder="—" /></label>
             <label>Response
               <select id="goa-response">
-                <option value="">— (use default) —</option>
+                <option value="">— inherit from defaults —</option>
                 <option value="accepted">accepted</option>
                 <option value="declined">declined</option>
                 <option value="unconfirmed">unconfirmed</option>
