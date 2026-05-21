@@ -51,7 +51,7 @@
   // ── Logout ──────────────────────────────────────────────────────────────────
   async function doLogout() {
     await fetch("/auth/logout", { method: "POST" });
-    location.replace("/login");
+    location.replace("/login?logged_out=1");
   }
   document.querySelectorAll("#mobile-logout").forEach(btn => {
     btn.addEventListener("click", doLogout);
