@@ -10,10 +10,9 @@ services:
     environment:
       - LOG_LEVEL=INFO
       - DEBUG=1
-      # Cloudflare Zero Trust SSO (optional — remove the '#' to enable)
-      # - CF_TEAM_DOMAIN=myteam.cloudflareaccess.com
-      # - CF_AUD=<audience-tag-from-cf-dashboard>
-      # - CF_ADMIN_EMAILS=you@example.com
+      - CF_TEAM_DOMAIN=dennisnas.cloudflareaccess.com
+      - CF_AUD=ce43356bf2239a9581730eb86514df7e25099e39ba819376b297c06bf78d0c13
+      - CF_ADMIN_EMAILS=dpremoli1@sheffield.ac.uk
     networks:
       - bridge
       - proxy
