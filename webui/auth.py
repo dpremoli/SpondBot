@@ -1,6 +1,7 @@
 """JWT authentication helpers and FastAPI dependencies."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
@@ -45,38 +46,37 @@ CF_ADMIN_EMAILS: set[str] = {
 
 _jwks_cache: dict = {"keys": None, "ts": 0.0}
 _JWKS_TTL = 3600.0
+_jwks_lock = asyncio.Lock()
 
 
-async def fetch_cf_jwks() -> list[dict]:
-    now = time.monotonic()
-    if _jwks_cache["keys"] and now - _jwks_cache["ts"] < _JWKS_TTL:
-        return _jwks_cache["keys"]
-    url = f"https://{CF_TEAM_DOMAIN}/cdn-cgi/access/certs"
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.json()
-    keys = data.get("keys", [])
-    _jwks_cache["keys"] = keys
-    _jwks_cache["ts"] = now
-    return keys
+async def fetch_cf_jwks(force: bool = False) -> list[dict]:
+    """Fetch (and cache) Cloudflare's JWKS. Set force=True to bypass the cache."""
+    async with _jwks_lock:
+        now = time.monotonic()
+        if not force and _jwks_cache["keys"] and now - _jwks_cache["ts"] < _JWKS_TTL:
+            return _jwks_cache["keys"]
+        url = f"https://{CF_TEAM_DOMAIN}/cdn-cgi/access/certs"
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+        keys = data.get("keys", [])
+        _jwks_cache["keys"] = keys
+        _jwks_cache["ts"] = now
+        return keys
 
 
 async def verify_cf_jwt(token: str) -> dict:
-    """Verify a Cloudflare Access JWT, with one JWKS-refresh retry for key rotation."""
+    """Verify a Cloudflare Access JWT. Refreshes JWKS only on unknown-kid (key rotation)."""
+    headers = jwt.get_unverified_header(token)  # raises JWTError on malformed token
+    kid = headers.get("kid")
     keys = await fetch_cf_jwks()
-    try:
-        return jwt.decode(
-            token, keys, algorithms=["RS256"],
-            audience=CF_AUD, issuer=f"https://{CF_TEAM_DOMAIN}",
-        )
-    except JWTError:
-        _jwks_cache["ts"] = 0.0  # invalidate cache, force refresh
-        keys = await fetch_cf_jwks()
-        return jwt.decode(
-            token, keys, algorithms=["RS256"],
-            audience=CF_AUD, issuer=f"https://{CF_TEAM_DOMAIN}",
-        )
+    if kid and not any(k.get("kid") == kid for k in keys):
+        keys = await fetch_cf_jwks(force=True)
+    return jwt.decode(
+        token, keys, algorithms=["RS256"],
+        audience=CF_AUD, issuer=f"https://{CF_TEAM_DOMAIN}",
+    )
 
 
 def create_access_token(user_id: str, username: str, is_admin: bool) -> str:
@@ -111,6 +111,10 @@ async def get_current_user(request: Request) -> dict:
 
 
 async def get_admin_user(user: dict = Depends(get_current_user)) -> dict:
-    if not user.get("is_admin"):
+    # Re-check admin status against the user store so admin demotions take effect
+    # immediately rather than persisting for the lifetime of the session token.
+    from webui.users import get_user_by_id
+    full = get_user_by_id(user["id"])
+    if not full or not full.get("is_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
-    return user
+    return {**user, "is_admin": True}
