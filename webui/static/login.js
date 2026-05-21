@@ -30,12 +30,28 @@
         const cfRes = await fetch('/auth/cf', { method: 'POST' });
         if (cfRes.ok) { location.replace('/'); return; }
       }
-      // Always show the CF button — lets the user re-authenticate after logout
-      cfBtn.href = `https://${methods.cf_team_domain}/cdn-cgi/access/login/${location.hostname}?redirect_url=${encodeURIComponent(location.origin + '/')}`;
+      // Always show the CF button — lets the user re-authenticate after logout.
+      // The page is itself behind Cloudflare Access, so the browser already has
+      // a valid CF_Authorization cookie; clicking the button just re-runs the
+      // silent SSO handshake against /auth/cf.
       cfBtn.hidden = false;
       cfDivider.hidden = false;
     }
   })();
+
+  cfBtn.addEventListener('click', async e => {
+    e.preventDefault();
+    err.hidden = true;
+    try {
+      const r = await fetch('/auth/cf', { method: 'POST' });
+      if (r.ok) { location.replace('/'); return; }
+      err.textContent = 'Cloudflare SSO sign-in failed — try refreshing, or use a username and password below.';
+      err.hidden = false;
+    } catch {
+      err.textContent = 'Network error — please try again.';
+      err.hidden = false;
+    }
+  });
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
