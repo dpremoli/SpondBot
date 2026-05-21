@@ -15,14 +15,11 @@ services:
       - CF_AUD=${CF_AUD:-}
       - CF_ADMIN_EMAILS=${CF_ADMIN_EMAILS:-}
     networks:
-      - bridge
       - proxy
     labels:
       net.unraid.docker.icon: "https://raw.githubusercontent.com/dpremoli/SpondBot/refs/heads/main/logo.png"
       net.unraid.docker.webui: "http://[IP]:[PORT:8888]"
 
 networks:
-  bridge:
-    external: true
   proxy:
     external: true
