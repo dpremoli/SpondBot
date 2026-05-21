@@ -33,13 +33,11 @@ fi
 cd "$REPO_DIR"
 mkdir -p data
 
-# Create .env from env vars if it doesn't exist yet.
-# Edit .env directly to change values after first run.
+# Always write .env from environment variables so CF settings stay in sync.
 ENV_FILE="$REPO_DIR/.env"
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Creating $ENV_FILE from environment variables..."
-  cat > "$ENV_FILE" << EOF
-# SpondBot environment — edit this file to change settings.
+echo "Writing $ENV_FILE from environment variables..."
+cat > "$ENV_FILE" << EOF
+# SpondBot environment — written by update.sh on every run.
 # This file is gitignored and will never be committed.
 
 # Cloudflare Zero Trust SSO (leave blank to disable)
@@ -47,9 +45,6 @@ CF_TEAM_DOMAIN=${CF_TEAM_DOMAIN:-}
 CF_AUD=${CF_AUD:-}
 CF_ADMIN_EMAILS=${CF_ADMIN_EMAILS:-}
 EOF
-  echo ".env created. Edit $ENV_FILE to update values."
-else
-  echo ".env already exists — skipping (edit $ENV_FILE to change values)."
-fi
+echo ".env written."
 
 docker compose up -d --build
