@@ -5,6 +5,7 @@
   const pwInput = document.getElementById('password');
   const pwToggle = document.getElementById('pw-toggle');
   const cfBtn = document.getElementById('cf-btn');
+  const cfSwitch = document.getElementById('cf-switch');
   const cfDivider = document.getElementById('cf-divider');
 
   pwToggle.addEventListener('click', () => {
@@ -36,6 +37,14 @@
       // silent SSO handshake against /auth/cf.
       cfBtn.hidden = false;
       cfDivider.hidden = false;
+      // Team-wide CF logout clears the SSO session so the user can pick a
+      // different Google account on the next sign-in. The per-app endpoint
+      // only drops the app cookie and CF would silently reissue it.
+      if (methods.cf_team_domain) {
+        const returnTo = encodeURIComponent(location.origin + '/login');
+        cfSwitch.href = `https://${methods.cf_team_domain}/cdn-cgi/access/logout?returnTo=${returnTo}`;
+        cfSwitch.hidden = false;
+      }
     }
   })();
 
