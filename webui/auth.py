@@ -4,8 +4,10 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
 
@@ -31,6 +33,50 @@ COOKIE_KWARGS = dict(
     path="/",
     max_age=TOKEN_EXPIRE_HOURS * 3600,
 )
+
+# --- Cloudflare Zero Trust ---
+CF_TEAM_DOMAIN: str = os.environ.get("CF_TEAM_DOMAIN", "")
+CF_AUD: str = os.environ.get("CF_AUD", "")
+CF_ADMIN_EMAILS: set[str] = {
+    e.strip().lower()
+    for e in os.environ.get("CF_ADMIN_EMAILS", "").split(",")
+    if e.strip()
+}
+
+_jwks_cache: dict = {"keys": None, "ts": 0.0}
+_JWKS_TTL = 3600.0
+
+
+async def fetch_cf_jwks() -> list[dict]:
+    now = time.monotonic()
+    if _jwks_cache["keys"] and now - _jwks_cache["ts"] < _JWKS_TTL:
+        return _jwks_cache["keys"]
+    url = f"https://{CF_TEAM_DOMAIN}/cdn-cgi/access/certs"
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        data = r.json()
+    keys = data.get("keys", [])
+    _jwks_cache["keys"] = keys
+    _jwks_cache["ts"] = now
+    return keys
+
+
+async def verify_cf_jwt(token: str) -> dict:
+    """Verify a Cloudflare Access JWT, with one JWKS-refresh retry for key rotation."""
+    keys = await fetch_cf_jwks()
+    try:
+        return jwt.decode(
+            token, keys, algorithms=["RS256"],
+            audience=CF_AUD, issuer=f"https://{CF_TEAM_DOMAIN}",
+        )
+    except JWTError:
+        _jwks_cache["ts"] = 0.0  # invalidate cache, force refresh
+        keys = await fetch_cf_jwks()
+        return jwt.decode(
+            token, keys, algorithms=["RS256"],
+            audience=CF_AUD, issuer=f"https://{CF_TEAM_DOMAIN}",
+        )
 
 
 def create_access_token(user_id: str, username: str, is_admin: bool) -> str:

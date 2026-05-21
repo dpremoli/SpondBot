@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -117,6 +118,45 @@ def delete_user(user_id: str) -> bool:
 def _public(u: dict) -> dict:
     """Return user dict without hashed_password."""
     return {k: v for k, v in u.items() if k != "hashed_password"}
+
+
+def get_user_by_email(email: str) -> dict | None:
+    return next(
+        (u for u in _load_raw() if (u.get("email") or "").lower() == email.lower()),
+        None,
+    )
+
+
+def get_or_create_cf_user(email: str, is_admin: bool = False) -> dict:
+    """Look up a user by email, or auto-provision one for Cloudflare SSO logins."""
+    users = _load_raw()
+    email_lower = email.lower()
+    for u in users:
+        if (u.get("email") or "").lower() == email_lower:
+            if u.get("is_admin") != is_admin:
+                u["is_admin"] = is_admin
+                _save_raw(users)
+            return _public(u)
+    # Derive username from email local-part, deduplicate if taken
+    base = email.split("@")[0].lower()
+    taken = {u["username"].lower() for u in users}
+    username = base
+    i = 2
+    while username in taken:
+        username = f"{base}{i}"
+        i += 1
+    user = {
+        "id": str(uuid.uuid4()),
+        "username": username,
+        "hashed_password": hash_password(secrets.token_hex(32)),
+        "is_admin": is_admin,
+        "email": email,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    users.append(user)
+    _save_raw(users)
+    log.info("auto-provisioned CF user username=%s email=%s admin=%s", username, email, is_admin)
+    return _public(user)
 
 
 # ---------- bootstrap ----------
