@@ -1,9 +1,11 @@
 """File-backed user store for multi-user SpondBot."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import re
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -127,51 +129,80 @@ def get_user_by_email(email: str) -> dict | None:
     )
 
 
-def get_or_create_cf_user(email: str, is_admin: bool = False) -> dict:
-    """Look up a user by email, or auto-provision one for Cloudflare SSO logins."""
-    users = _load_raw()
-    email_lower = email.lower()
-    for u in users:
-        if (u.get("email") or "").lower() == email_lower:
-            if u.get("is_admin") != is_admin:
-                u["is_admin"] = is_admin
-                _save_raw(users)
-            return _public(u)
-    # Derive username from email local-part, deduplicate if taken
-    base = email.split("@")[0].lower()
-    taken = {u["username"].lower() for u in users}
-    username = base
-    i = 2
-    while username in taken:
-        username = f"{base}{i}"
-        i += 1
-    user = {
-        "id": str(uuid.uuid4()),
-        "username": username,
-        "hashed_password": hash_password(secrets.token_hex(32)),
-        "is_admin": is_admin,
-        "email": email,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    users.append(user)
-    _save_raw(users)
-    log.info("auto-provisioned CF user username=%s email=%s admin=%s", username, email, is_admin)
-    return _public(user)
+_cf_user_lock = asyncio.Lock()
+_USERNAME_SAFE_RE = re.compile(r"[^a-z0-9._-]+")
+_USERNAME_MAX_LEN = 32
+
+
+def _safe_username_from_email(email: str) -> str:
+    base = _USERNAME_SAFE_RE.sub("", email.split("@", 1)[0].lower())[:_USERNAME_MAX_LEN]
+    return base or "user"
+
+
+async def get_or_create_cf_user(email: str, is_admin: bool = False) -> dict:
+    """Look up a user by email, or auto-provision one for Cloudflare SSO logins.
+
+    Async-locked to prevent TOCTOU duplicate-creation when concurrent requests
+    arrive for the same brand-new email.
+    """
+    async with _cf_user_lock:
+        users = _load_raw()
+        email_lower = email.lower()
+        for u in users:
+            if (u.get("email") or "").lower() == email_lower:
+                if u.get("is_admin") != is_admin:
+                    u["is_admin"] = is_admin
+                    _save_raw(users)
+                return _public(u)
+        base = _safe_username_from_email(email)
+        taken = {u["username"].lower() for u in users}
+        username = base
+        i = 2
+        while username in taken and i < 10_000:
+            username = f"{base}{i}"
+            i += 1
+        if username in taken:
+            username = f"{base}-{uuid.uuid4().hex[:8]}"
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "hashed_password": hash_password(secrets.token_hex(32)),
+            "is_admin": is_admin,
+            "email": email,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        users.append(user)
+        _save_raw(users)
+        log.info("auto-provisioned CF user username=%s email=%s admin=%s", username, email, is_admin)
+        return _public(user)
 
 
 # ---------- bootstrap ----------
 
 def _bootstrap() -> None:
-    """Create default admin account if no users exist."""
-    if not USERS_PATH.exists() or not _load_raw():
+    """Create default admin account if no users exist.
+
+    Skipped when Cloudflare SSO is configured — in that mode admins are designated
+    via CF_ADMIN_EMAILS and a default admin/admin would be a trivial bypass for
+    anyone able to reach /auth/login.
+    """
+    if USERS_PATH.exists() and _load_raw():
+        return
+    if os.environ.get("CF_TEAM_DOMAIN"):
         log.warning(
-            "╔══════════════════════════════════════════════════╗\n"
-            "║  No users found — creating default admin account ║\n"
-            "║  Username: admin   Password: admin               ║\n"
-            "║  CHANGE THIS IMMEDIATELY at /settings            ║\n"
-            "╚══════════════════════════════════════════════════╝"
+            "No users found. Cloudflare SSO is configured — skipping default "
+            "admin/admin bootstrap. The first user listed in CF_ADMIN_EMAILS "
+            "will be auto-provisioned as admin on their first login."
         )
-        create_user("admin", "admin", is_admin=True)
+        return
+    log.warning(
+        "╔══════════════════════════════════════════════════╗\n"
+        "║  No users found — creating default admin account ║\n"
+        "║  Username: admin   Password: admin               ║\n"
+        "║  CHANGE THIS IMMEDIATELY at /settings            ║\n"
+        "╚══════════════════════════════════════════════════╝"
+    )
+    create_user("admin", "admin", is_admin=True)
 
 
 _bootstrap()

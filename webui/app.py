@@ -15,9 +15,11 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
+import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from jose import JWTError
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -800,7 +802,21 @@ manager = SchedulerManager()
 
 # ---------- FastAPI ----------
 
-limiter = Limiter(key_func=get_remote_address)
+def _rate_limit_key(request: Request) -> str:
+    """Rate-limit by the real client IP.
+
+    When Cloudflare is in front of us, request.client.host is a CF edge IP
+    shared by every user behind that PoP — so the per-IP limiter becomes a
+    global limiter unless we honour CF-Connecting-IP.
+    """
+    if CF_TEAM_DOMAIN:
+        cf_ip = request.headers.get("Cf-Connecting-Ip")
+        if cf_ip:
+            return cf_ip
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=_rate_limit_key)
 
 
 @asynccontextmanager
@@ -906,14 +922,17 @@ async def auth_cf(request: Request, response: Response) -> dict:
         raise HTTPException(401, "No Cloudflare Access token present")
     try:
         payload = await verify_cf_jwt(token)
-    except Exception:
-        log.warning("CF JWT verification failed (user=%s)", request.client.host if request.client else "?")
+    except JWTError as exc:
+        log.warning("CF JWT verification failed: %s", exc)
         raise HTTPException(401, "Invalid Cloudflare Access token")
+    except httpx.HTTPError as exc:
+        log.error("Could not fetch Cloudflare JWKS: %s", exc)
+        raise HTTPException(502, "Could not reach Cloudflare to verify SSO token")
     email = payload.get("email")
     if not email:
         raise HTTPException(401, "No email in Cloudflare token")
     is_admin = email.lower() in CF_ADMIN_EMAILS
-    user = get_or_create_cf_user(email, is_admin)
+    user = await get_or_create_cf_user(email, is_admin)
     session_token = create_access_token(user["id"], user["username"], user["is_admin"])
     response.set_cookie("sb_session", session_token, **COOKIE_KWARGS)
     log.info("CF SSO login: username=%s email=%s admin=%s", user["username"], email, user["is_admin"])
