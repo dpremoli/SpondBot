@@ -23,14 +23,14 @@
     if (!methodsRes.ok) return;
     const methods = await methodsRes.json();
 
-    const loggedOut = new URLSearchParams(location.search).has('logged_out');
-    if (methods.cloudflare && !loggedOut) {
-      // Try silent CF login — server reads the Cf-Access-Jwt-Assertion header
-      const cfRes = await fetch('/auth/cf', { method: 'POST' });
-      if (cfRes.ok) { location.replace('/'); return; }
-
-      // CF is configured but we aren't authenticated through it yet —
-      // show the CF button so the user can initiate the Cloudflare Access flow
+    if (methods.cloudflare) {
+      const loggedOut = new URLSearchParams(location.search).has('logged_out');
+      if (!loggedOut) {
+        // Try silent CF login — server reads the Cf-Access-Jwt-Assertion header
+        const cfRes = await fetch('/auth/cf', { method: 'POST' });
+        if (cfRes.ok) { location.replace('/'); return; }
+      }
+      // Always show the CF button — lets the user re-authenticate after logout
       cfBtn.href = `https://${methods.cf_team_domain}/cdn-cgi/access/login/${location.hostname}`;
       cfBtn.hidden = false;
       cfDivider.hidden = false;
