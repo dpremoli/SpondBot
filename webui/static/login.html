@@ -14,6 +14,14 @@
       <img src="/static/logo.png" alt="SpondBot" width="48" height="48" />
       <h1>SpondBot</h1>
     </div>
+    <a id="cf-btn" href="#" hidden style="display:flex;justify-content:center;align-items:center;gap:.5rem;text-decoration:none;margin-bottom:.25rem">
+      Sign in with Google (via Cloudflare)
+    </a>
+    <div id="cf-divider" hidden style="display:flex;align-items:center;gap:.5rem;margin:.5rem 0;color:var(--muted,#888)">
+      <hr style="flex:1;border:none;border-top:1px solid var(--border,#ddd)" />
+      <span style="font-size:.8rem">or sign in locally</span>
+      <hr style="flex:1;border:none;border-top:1px solid var(--border,#ddd)" />
+    </div>
     <form id="login-form" autocomplete="on">
       <label>Username
         <input type="text" id="username" name="username" required autocomplete="username" />

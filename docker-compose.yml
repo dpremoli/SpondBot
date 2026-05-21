@@ -10,6 +10,10 @@ services:
     environment:
       - LOG_LEVEL=INFO
       - DEBUG=1
+      # Cloudflare Zero Trust SSO (optional — remove the '#' to enable)
+      # - CF_TEAM_DOMAIN=myteam.cloudflareaccess.com
+      # - CF_AUD=<audience-tag-from-cf-dashboard>
+      # - CF_ADMIN_EMAILS=you@example.com
     labels:
       net.unraid.docker.icon: "https://raw.githubusercontent.com/dpremoli/SpondBot/refs/heads/main/logo.png"
       net.unraid.docker.webui: "http://[IP]:[PORT:8888]"

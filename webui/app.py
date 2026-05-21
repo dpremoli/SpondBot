@@ -25,14 +25,19 @@ from slowapi.util import get_remote_address
 
 from spond import AuthenticationError, spond
 from webui.auth import (
+    CF_ADMIN_EMAILS,
+    CF_AUD,
+    CF_TEAM_DOMAIN,
     COOKIE_KWARGS,
     create_access_token,
     get_admin_user,
     get_current_user,
+    verify_cf_jwt,
 )
 from webui.users import (
     create_user,
     delete_user,
+    get_or_create_cf_user,
     get_user_by_username,
     load_users,
     update_user,
@@ -879,6 +884,40 @@ async def auth_change_password(
         raise HTTPException(400, "Current password is incorrect")
     update_user(user["id"], password=body.new_password)
     return {"status": "ok"}
+
+
+@app.get("/auth/methods")
+async def auth_methods() -> dict:
+    cf_enabled = bool(CF_TEAM_DOMAIN and CF_AUD)
+    return {
+        "local": True,
+        "cloudflare": cf_enabled,
+        "cf_team_domain": CF_TEAM_DOMAIN if cf_enabled else None,
+    }
+
+
+@app.post("/auth/cf")
+@limiter.limit("5/minute")
+async def auth_cf(request: Request, response: Response) -> dict:
+    if not CF_TEAM_DOMAIN or not CF_AUD:
+        raise HTTPException(404, "Cloudflare SSO not configured")
+    token = request.headers.get("Cf-Access-Jwt-Assertion")
+    if not token:
+        raise HTTPException(401, "No Cloudflare Access token present")
+    try:
+        payload = await verify_cf_jwt(token)
+    except Exception:
+        log.warning("CF JWT verification failed (user=%s)", request.client.host if request.client else "?")
+        raise HTTPException(401, "Invalid Cloudflare Access token")
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(401, "No email in Cloudflare token")
+    is_admin = email.lower() in CF_ADMIN_EMAILS
+    user = get_or_create_cf_user(email, is_admin)
+    session_token = create_access_token(user["id"], user["username"], user["is_admin"])
+    response.set_cookie("sb_session", session_token, **COOKIE_KWARGS)
+    log.info("CF SSO login: username=%s email=%s admin=%s", user["username"], email, user["is_admin"])
+    return {"username": user["username"], "is_admin": user["is_admin"]}
 
 
 # ---------- admin routes ----------
