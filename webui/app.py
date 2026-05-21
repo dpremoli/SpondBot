@@ -882,7 +882,9 @@ async def auth_logout(response: Response) -> dict:
 
 @app.get("/auth/me")
 async def auth_me(user: dict = Depends(get_current_user)) -> dict:
-    return user
+    from webui.users import get_user_by_id
+    full = get_user_by_id(user["id"])
+    return {**user, "is_sso": bool(full and full.get("email"))}
 
 
 class ChangePasswordBody(BaseModel):
@@ -896,7 +898,11 @@ async def auth_change_password(
 ) -> dict:
     from webui.users import get_user_by_id
     full = get_user_by_id(user["id"])
-    if not full or not verify_password(body.current_password, full.get("hashed_password")):
+    if not full:
+        raise HTTPException(401)
+    if full.get("email"):
+        raise HTTPException(400, "Password change is not available for SSO accounts")
+    if not verify_password(body.current_password, full.get("hashed_password")):
         raise HTTPException(400, "Current password is incorrect")
     update_user(user["id"], password=body.new_password)
     return {"status": "ok"}
@@ -975,6 +981,10 @@ async def admin_update_user(
     if body.is_admin is not None:
         fields["is_admin"] = body.is_admin
     if body.password is not None:
+        from webui.users import get_user_by_id
+        target = get_user_by_id(uid)
+        if target and target.get("email"):
+            raise HTTPException(400, "Cannot set a password on an SSO account")
         fields["password"] = body.password
     if not fields:
         raise HTTPException(400, "Nothing to update")

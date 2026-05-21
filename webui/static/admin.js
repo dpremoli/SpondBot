@@ -77,45 +77,59 @@
     tbody.innerHTML = '';
     users.forEach(u => {
       const tr = document.createElement('tr');
+      const typeBadge = u.is_sso
+        ? '<span class="tag" title="Provisioned via Cloudflare SSO">SSO</span>'
+        : '<span class="tag">Local</span>';
+      const emailHint = u.is_sso && u.email
+        ? `<br/><small class="muted">${esc(u.email)}</small>`
+        : '';
       tr.innerHTML = `
-        <td>${esc(u.username)}</td>
+        <td>${esc(u.username)}${emailHint}</td>
+        <td>${typeBadge}</td>
         <td>${u.is_admin ? '<span class="tag admin-tag">Admin</span>' : '<span class="tag">User</span>'}</td>
         <td class="muted" style="font-size:.8rem">${new Date(u.created_at).toLocaleDateString()}</td>
         <td>
           <div class="td-actions">
-            <button class="ghost small" data-action="edit" data-uid="${u.id}" data-username="${esc(u.username)}" data-admin="${u.is_admin}">Edit</button>
+            <button class="ghost small" data-action="edit" data-uid="${u.id}" data-username="${esc(u.username)}" data-admin="${u.is_admin}" data-sso="${u.is_sso ? '1' : ''}">Edit</button>
             <button class="ghost small err-btn" data-action="delete" data-uid="${u.id}" data-username="${esc(u.username)}" ${u.id === currentUser?.id ? 'disabled title="Cannot delete own account"' : ''}>Delete</button>
           </div>
         </td>`;
       tbody.appendChild(tr);
     });
-    tbody.querySelectorAll('[data-action="edit"]').forEach(btn => btn.addEventListener('click', () => openEditModal(btn.dataset.uid, btn.dataset.username, btn.dataset.admin === 'true')));
+    tbody.querySelectorAll('[data-action="edit"]').forEach(btn => btn.addEventListener('click', () => openEditModal(btn.dataset.uid, btn.dataset.username, btn.dataset.admin === 'true', btn.dataset.sso === '1')));
     tbody.querySelectorAll('[data-action="delete"]').forEach(btn => btn.addEventListener('click', () => deleteUser(btn.dataset.uid, btn.dataset.username)));
   }
 
   document.getElementById('new-user-btn').addEventListener('click', () => openNewModal());
 
+  let editingIsSso = false;
+
   function openNewModal() {
     editingUid = null;
+    editingIsSso = false;
     document.getElementById('user-modal-title').textContent = 'New user';
     document.getElementById('uf-submit').textContent = 'Create';
     document.getElementById('uf-username').value = '';
     document.getElementById('uf-username').disabled = false;
     document.getElementById('uf-password').value = '';
     document.getElementById('uf-pw-label').querySelector('input').placeholder = 'min 8 characters';
+    document.getElementById('uf-pw-label').hidden = false;
     document.getElementById('uf-admin').checked = false;
     document.getElementById('uf-error').hidden = true;
     document.getElementById('user-modal').hidden = false;
   }
 
-  function openEditModal(uid, username, isAdmin) {
+  function openEditModal(uid, username, isAdmin, isSso) {
     editingUid = uid;
+    editingIsSso = !!isSso;
     document.getElementById('user-modal-title').textContent = `Edit ${username}`;
     document.getElementById('uf-submit').textContent = 'Save';
     document.getElementById('uf-username').value = username;
     document.getElementById('uf-username').disabled = true;
     document.getElementById('uf-password').value = '';
     document.getElementById('uf-pw-label').querySelector('input').placeholder = 'Leave blank to keep current';
+    // SSO accounts have no local password — managed by the identity provider.
+    document.getElementById('uf-pw-label').hidden = !!isSso;
     document.getElementById('uf-admin').checked = isAdmin;
     document.getElementById('uf-error').hidden = true;
     document.getElementById('user-modal').hidden = false;
@@ -136,7 +150,7 @@
     let res;
     if (editingUid) {
       const body = { is_admin: document.getElementById('uf-admin').checked };
-      if (pw) body.password = pw;
+      if (pw && !editingIsSso) body.password = pw;
       res = await fetch(`/admin/users/${editingUid}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     } else {
       res = await fetch('/admin/users', {

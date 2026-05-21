@@ -147,9 +147,10 @@
         <div id="overrides"></div>
       </section>
 
-      <section class="card">
+      <section class="card" id="section-my-account">
         <h2>My Account</h2>
-        <p class="muted">Change your dashboard login password.</p>
+        <p class="muted" id="pw-form-blurb">Change your dashboard login password.</p>
+        <p class="muted" id="pw-sso-blurb" hidden>Signed in via Cloudflare SSO — password is managed by your identity provider.</p>
         <form id="pw-form">
           <label>Current password
             <input type="password" id="pw-current" required autocomplete="current-password" />

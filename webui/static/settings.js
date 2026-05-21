@@ -31,6 +31,14 @@ fetch("/auth/me").then(r => {
   } else {
     initGroupOverrides();
   }
+  if (u.is_sso) {
+    const form = $("#pw-form");
+    if (form) form.hidden = true;
+    const blurb = $("#pw-form-blurb");
+    if (blurb) blurb.hidden = true;
+    const ssoBlurb = $("#pw-sso-blurb");
+    if (ssoBlurb) ssoBlurb.hidden = false;
+  }
 });
 
 function escapeHtml(s) {
