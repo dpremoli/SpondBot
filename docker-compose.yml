@@ -10,18 +10,16 @@ services:
     environment:
       - LOG_LEVEL=INFO
       - DEBUG=1
-      - CF_TEAM_DOMAIN=dennisnas.cloudflareaccess.com
-      - CF_AUD=ce43356bf2239a9581730eb86514df7e25099e39ba819376b297c06bf78d0c13
-      - CF_ADMIN_EMAILS=dpremoli1@sheffield.ac.uk
+      # Cloudflare Zero Trust SSO — set values in a .env file alongside docker-compose.yml
+      - CF_TEAM_DOMAIN=${CF_TEAM_DOMAIN:-}
+      - CF_AUD=${CF_AUD:-}
+      - CF_ADMIN_EMAILS=${CF_ADMIN_EMAILS:-}
     networks:
-      - bridge
       - proxy
     labels:
       net.unraid.docker.icon: "https://raw.githubusercontent.com/dpremoli/SpondBot/refs/heads/main/logo.png"
       net.unraid.docker.webui: "http://[IP]:[PORT:8888]"
 
 networks:
-  bridge:
-    external: true
   proxy:
     external: true
