@@ -23,7 +23,8 @@
     if (!methodsRes.ok) return;
     const methods = await methodsRes.json();
 
-    if (methods.cloudflare) {
+    const loggedOut = new URLSearchParams(location.search).has('logged_out');
+    if (methods.cloudflare && !loggedOut) {
       // Try silent CF login — server reads the Cf-Access-Jwt-Assertion header
       const cfRes = await fetch('/auth/cf', { method: 'POST' });
       if (cfRes.ok) { location.replace('/'); return; }
