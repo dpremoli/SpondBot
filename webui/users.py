@@ -118,8 +118,11 @@ def delete_user(user_id: str) -> bool:
 
 
 def _public(u: dict) -> dict:
-    """Return user dict without hashed_password."""
-    return {k: v for k, v in u.items() if k != "hashed_password"}
+    """Return user dict without hashed_password, with is_sso derived."""
+    return {
+        **{k: v for k, v in u.items() if k != "hashed_password"},
+        "is_sso": bool(u.get("email")),
+    }
 
 
 def get_user_by_email(email: str) -> dict | None:
