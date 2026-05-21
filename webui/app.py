@@ -9,6 +9,7 @@ import logging
 import os
 import random
 import secrets
+import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -1004,6 +1005,70 @@ async def admin_delete_user(
         raise HTTPException(404, f"User {uid} not found")
     await manager.remove(uid)
     return {"status": "ok"}
+
+
+class MigrateUserBody(BaseModel):
+    from_uid: str
+    to_uid: str
+
+
+@app.post("/admin/users/migrate")
+async def admin_migrate_user_data(
+    body: MigrateUserBody, _: dict = Depends(get_admin_user)
+) -> dict:
+    """Copy a user's data dir wholesale onto another user, then wipe the source.
+
+    Intended for one-shot account migrations (e.g. local admin → SSO user).
+    Spond credentials, group IDs, selection, defaults, per-event settings,
+    bulk overrides, history and ID tracking sets all move together. The
+    source user record is preserved but its data files are removed; the
+    target's existing data (if any) is overwritten.
+    """
+    if body.from_uid == body.to_uid:
+        raise HTTPException(400, "Source and target must differ")
+    users_by_id = {u["id"]: u for u in load_users()}
+    src = users_by_id.get(body.from_uid)
+    tgt = users_by_id.get(body.to_uid)
+    if not src:
+        raise HTTPException(404, f"Source user {body.from_uid} not found")
+    if not tgt:
+        raise HTTPException(404, f"Target user {body.to_uid} not found")
+
+    # Stop both schedulers so we can mutate files without races.
+    await manager.remove(body.from_uid)
+    await manager.remove(body.to_uid)
+    # Drop cached configs so the next load reads from disk.
+    _config_cache.pop(body.from_uid, None)
+    _config_cache.pop(body.to_uid, None)
+
+    src_dir = user_data_dir(body.from_uid)
+    tgt_dir = user_data_dir(body.to_uid)
+    # Wipe target first, then copy every file from source.
+    for p in tgt_dir.iterdir():
+        if p.is_file():
+            p.unlink()
+    copied = 0
+    for p in src_dir.iterdir():
+        if p.is_file():
+            shutil.copy2(p, tgt_dir / p.name)
+            copied += 1
+    # Reset source by removing its data files (the user record itself stays).
+    for p in src_dir.iterdir():
+        if p.is_file():
+            p.unlink()
+
+    # Eagerly start the target's scheduler with the migrated config.
+    await manager.get(body.to_uid)
+    log.info(
+        "migrated user data: from=%s to=%s files=%d (source data reset)",
+        src["username"], tgt["username"], copied,
+    )
+    return {
+        "status": "ok",
+        "from": src["username"],
+        "to": tgt["username"],
+        "files_copied": copied,
+    }
 
 
 @app.get("/admin/activity")

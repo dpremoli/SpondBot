@@ -47,7 +47,10 @@
       <div id="tab-users" class="tab-panel">
         <div class="card-header" style="margin-bottom:.75rem">
           <h2 style="margin:0">Users</h2>
-          <button id="new-user-btn">+ New user</button>
+          <div class="toolbar">
+            <button id="migrate-btn" class="ghost">Migrate data</button>
+            <button id="new-user-btn">+ New user</button>
+          </div>
         </div>
         <div class="card" style="padding:0;overflow:hidden">
           <table class="data-table" id="users-table">
@@ -124,6 +127,36 @@
         <button type="submit" id="uf-submit">Create</button>
         <button type="button" id="uf-cancel" class="ghost">Cancel</button>
         <p id="uf-error" class="status err" hidden></p>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Migrate user data modal -->
+<div id="migrate-modal" class="modal-backdrop" hidden>
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h2>Migrate user data</h2>
+      <button id="migrate-modal-close" class="modal-close" aria-label="Close">✕</button>
+    </div>
+    <p class="muted">
+      Copies Spond credentials, group IDs, selection, defaults, per-event
+      settings, bulk overrides, history and tracking sets from one user
+      onto another. The source user record is kept but its data is wiped;
+      the target's existing data is overwritten.
+    </p>
+    <form id="migrate-form">
+      <label>From (source)
+        <select id="mig-from"><option value="">Select user…</option></select>
+      </label>
+      <label>To (target)
+        <select id="mig-to"><option value="">Select user…</option></select>
+      </label>
+      <p id="mig-summary" class="muted" style="font-size:.85rem" hidden></p>
+      <div class="form-footer">
+        <button type="submit" id="mig-submit" disabled>Migrate</button>
+        <button type="button" id="mig-cancel" class="ghost">Cancel</button>
+        <p id="mig-error" class="status err" hidden></p>
       </div>
     </form>
   </div>

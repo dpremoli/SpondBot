@@ -35,6 +35,12 @@
     document.getElementById('bots-reload').addEventListener('click', loadBots);
     document.getElementById('events-user-select').addEventListener('change', loadAdminEvents);
     document.getElementById('events-reload').addEventListener('click', loadAdminEvents);
+    document.getElementById('migrate-btn').addEventListener('click', openMigrateModal);
+    document.getElementById('migrate-modal-close').addEventListener('click', closeMigrateModal);
+    document.getElementById('mig-cancel').addEventListener('click', closeMigrateModal);
+    document.getElementById('mig-from').addEventListener('change', updateMigrateSummary);
+    document.getElementById('mig-to').addEventListener('change', updateMigrateSummary);
+    document.getElementById('migrate-form').addEventListener('submit', submitMigrate);
   }
 
   // ---- Users ----
@@ -176,6 +182,83 @@
     } else {
       const d = await res.json().catch(() => ({}));
       document.getElementById('users-status').textContent = d.detail || 'Delete failed.';
+    }
+  }
+
+  // ---- Migrate data ----
+  let migrateUsers = [];
+
+  async function openMigrateModal() {
+    const res = await fetch('/admin/users');
+    if (!res.ok) return;
+    migrateUsers = await res.json();
+    const fromSel = document.getElementById('mig-from');
+    const toSel = document.getElementById('mig-to');
+    fromSel.innerHTML = '<option value="">Select user…</option>';
+    toSel.innerHTML = '<option value="">Select user…</option>';
+    migrateUsers.forEach(u => {
+      const label = `${u.username}${u.is_sso ? ' (SSO)' : ''}`;
+      const o1 = document.createElement('option'); o1.value = u.id; o1.textContent = label; fromSel.appendChild(o1);
+      const o2 = document.createElement('option'); o2.value = u.id; o2.textContent = label; toSel.appendChild(o2);
+    });
+    document.getElementById('mig-error').hidden = true;
+    document.getElementById('mig-summary').hidden = true;
+    document.getElementById('mig-submit').disabled = true;
+    document.getElementById('migrate-modal').hidden = false;
+  }
+
+  function closeMigrateModal() {
+    document.getElementById('migrate-modal').hidden = true;
+  }
+
+  function updateMigrateSummary() {
+    const fromUid = document.getElementById('mig-from').value;
+    const toUid = document.getElementById('mig-to').value;
+    const summary = document.getElementById('mig-summary');
+    const submit = document.getElementById('mig-submit');
+    const err = document.getElementById('mig-error');
+    err.hidden = true;
+    if (!fromUid || !toUid) {
+      summary.hidden = true; submit.disabled = true; return;
+    }
+    if (fromUid === toUid) {
+      err.textContent = 'Source and target must differ.';
+      err.hidden = false; summary.hidden = true; submit.disabled = true; return;
+    }
+    const from = migrateUsers.find(u => u.id === fromUid);
+    const to = migrateUsers.find(u => u.id === toUid);
+    summary.innerHTML = `All data will be copied from <strong>${esc(from.username)}</strong> to <strong>${esc(to.username)}</strong>. ${esc(from.username)}'s data files will be wiped (account preserved). ${esc(to.username)}'s existing data will be overwritten.`;
+    summary.hidden = false;
+    submit.disabled = false;
+  }
+
+  async function submitMigrate(e) {
+    e.preventDefault();
+    const fromUid = document.getElementById('mig-from').value;
+    const toUid = document.getElementById('mig-to').value;
+    const from = migrateUsers.find(u => u.id === fromUid);
+    const to = migrateUsers.find(u => u.id === toUid);
+    if (!confirm(`Migrate all data from "${from.username}" to "${to.username}"?\n\nThis will overwrite ${to.username}'s data and wipe ${from.username}'s data files.`)) return;
+    const submit = document.getElementById('mig-submit');
+    const err = document.getElementById('mig-error');
+    err.hidden = true;
+    submit.disabled = true; submit.textContent = 'Migrating…';
+    try {
+      const res = await fetch('/admin/users/migrate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_uid: fromUid, to_uid: toUid }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || 'Migration failed.');
+      }
+      closeMigrateModal();
+      loadUsers();
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    } finally {
+      submit.disabled = false; submit.textContent = 'Migrate';
     }
   }
 
